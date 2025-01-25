@@ -4,7 +4,6 @@
 --- DateTime: 25-1-5 下午3:25
 ---
 
--- 初始化存储表
 global.interplanetary_belts = {}
 
 -- 当玩家放置新传送带时记录信息
@@ -14,9 +13,9 @@ script.on_event(defines.events.on_built_entity, function(event)
         -- 保存端点信息
         table.insert(global.interplanetary_belts, {
             surface = entity.surface.name, -- 所在星球
-            position = entity.position,   -- 位置
-            entity = entity,             -- 实体
-            connected_to = nil           -- 初始未连接
+            position = entity.position,    -- 位置
+            entity = entity,               -- 实体
+            connected_to = nil             -- 初始未连接
         })
         game.print("Interplanetary belt endpoint placed on " .. entity.surface.name)
     end
