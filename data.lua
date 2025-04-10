@@ -5,37 +5,65 @@
 ---
 
 --- item
-local portal_underground_belt = table.deepcopy(data.raw["belt"]["underground-belt"])
-local portal_fast_underground_belt = table.deepcopy(data.raw["belt"]["fast-underground-belt"])
-local portal_express_underground_belt = table.deepcopy(data.raw["belt"]["express-underground-belt"])
-local portal_turbo_underground_belt = table.deepcopy(data.raw["belt"]["turbo-underground-belt"])
+local portal_underground_belt = table.deepcopy(data.raw["underground-belt"]["underground-belt"])
+local portal_fast_underground_belt = table.deepcopy(data.raw["underground-belt"]["fast-underground-belt"])
+local portal_express_underground_belt = table.deepcopy(data.raw["underground-belt"]["express-underground-belt"])
+local portal_turbo_underground_belt = table.deepcopy(data.raw["underground-belt"]["turbo-underground-belt"])
 
 -- update underground_belt
 portal_underground_belt.name = "portal-underground-belt"
 portal_underground_belt.icon = "__base__/graphics/icons/underground-belt.png"
 portal_underground_belt.max_distance = 1
 portal_underground_belt.minable.mining_time = 0.2
+portal_underground_belt.localised_description = {"item-description.portal-belt"}
 
 -- update fast_underground_belt
 portal_fast_underground_belt.name = "portal-fast-underground-belt"
 portal_fast_underground_belt.icon = "__base__/graphics/icons/fast-underground-belt.png"
 portal_fast_underground_belt.max_distance = 1
 portal_fast_underground_belt.minable.mining_time = 0.2
+portal_fast_underground_belt.localised_description = {"item-description.portal-belt"}
 
 -- update express_underground_belt
 portal_express_underground_belt.name = "portal-express-underground-belt"
 portal_express_underground_belt.icon = "__base__/graphics/icons/express-underground-belt.png"
 portal_express_underground_belt.max_distance = 1
 portal_express_underground_belt.minable.mining_time = 0.2
+portal_express_underground_belt.localised_description = {"item-description.portal-belt"}
 
 -- update turbo_underground_belt
 portal_turbo_underground_belt.name = "portal-turbo-underground-belt"
 portal_turbo_underground_belt.icon = "__space-age__/graphics/icons/turbo-underground-belt.png"
 portal_turbo_underground_belt.max_distance = 1
 portal_turbo_underground_belt.minable.mining_time = 0.2
+portal_turbo_underground_belt.localised_description = {"item-description.portal-belt"}
 
-data:extend(portal_underground_belt, portal_fast_underground_belt,
-            portal_express_underground_belt, portal_turbo_underground_belt)
+data:extend({portal_underground_belt, portal_fast_underground_belt,
+            portal_express_underground_belt, portal_turbo_underground_belt})
+
+--- 添加物品定义
+local portal_underground_belt_item = table.deepcopy(data.raw["item"]["underground-belt"])
+portal_underground_belt_item.name = "portal-underground-belt"
+portal_underground_belt_item.place_result = "portal-underground-belt"
+portal_underground_belt_item.localised_description = {"item-description.portal-belt"}
+
+local portal_fast_underground_belt_item = table.deepcopy(data.raw["item"]["fast-underground-belt"])
+portal_fast_underground_belt_item.name = "portal-fast-underground-belt"
+portal_fast_underground_belt_item.place_result = "portal-fast-underground-belt"
+portal_fast_underground_belt_item.localised_description = {"item-description.portal-belt"}
+
+local portal_express_underground_belt_item = table.deepcopy(data.raw["item"]["express-underground-belt"])
+portal_express_underground_belt_item.name = "portal-express-underground-belt"
+portal_express_underground_belt_item.place_result = "portal-express-underground-belt"
+portal_express_underground_belt_item.localised_description = {"item-description.portal-belt"}
+
+local portal_turbo_underground_belt_item = table.deepcopy(data.raw["item"]["turbo-underground-belt"])
+portal_turbo_underground_belt_item.name = "portal-turbo-underground-belt"
+portal_turbo_underground_belt_item.place_result = "portal-turbo-underground-belt"
+portal_turbo_underground_belt_item.localised_description = {"item-description.portal-belt"}
+
+data:extend({portal_underground_belt_item, portal_fast_underground_belt_item,
+            portal_express_underground_belt_item, portal_turbo_underground_belt_item})
 
 ---recipe
 local portal_underground_belt_recipe = {
@@ -78,5 +106,5 @@ local portal_turbo_underground_belt_recipe = {
     results = {{type="item", name="portal-turbo-underground-belt", amount=2}}
 }
 
-data:extend(portal_underground_belt_recipe, portal_fast_underground_belt_recipe,
-            portal_express_underground_belt_recipe, portal_turbo_underground_belt_recipe)
+data:extend({portal_underground_belt_recipe, portal_fast_underground_belt_recipe,
+            portal_express_underground_belt_recipe, portal_turbo_underground_belt_recipe})

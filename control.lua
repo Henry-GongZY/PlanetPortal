@@ -4,84 +4,161 @@
 --- DateTime: 25-1-5 下午3:25
 ---
 
-global.interplanetary_belts = {}
+-- 存储所有传送带配对信息
+local portal_pairs = {}
 
--- 当玩家放置新传送带时记录信息
+-- 初始化全局变量
+-- 在 on_init 事件中初始化 global 表
+script.on_init(function()
+    -- 确保 global 表已初始化
+    global = global or {}
+    -- 初始化您需要的全局变量
+    global.portals = global.portals or {}
+    global.portal_belts = global.portal_belts or {}
+    global.portal_pairs = global.portal_pairs or {}
+    global.next_portal_id = global.next_portal_id or 1
+end)
+
+-- 检测传送带放置
 script.on_event(defines.events.on_built_entity, function(event)
     local entity = event.created_entity
-    if entity.name == "interplanetary-underground-belt" then
-        -- 保存端点信息
-        table.insert(global.interplanetary_belts, {
-            surface = entity.surface.name, -- 所在星球
-            position = entity.position,    -- 位置
-            entity = entity,               -- 实体
-            connected_to = nil             -- 初始未连接
-        })
-        game.print("Interplanetary belt endpoint placed on " .. entity.surface.name)
+    if entity and entity.valid and is_portal_belt(entity) then
+        register_portal_belt(entity, event.player_index)
     end
 end)
 
--- 删除传送带时清理记录
+-- 检测传送带移除
 script.on_event(defines.events.on_entity_died, function(event)
-    local entity = event.entity
-    if entity.name == "interplanetary-underground-belt" then
-        for i, endpoint in ipairs(global.interplanetary_belts) do
-            if endpoint.entity == entity then
-                table.remove(global.interplanetary_belts, i)
-                game.print("Interplanetary belt endpoint removed!")
-                break
-            end
+    handle_portal_belt_removed(event.entity)
+end)
+
+script.on_event(defines.events.on_robot_built_entity, function(event)
+    local entity = event.created_entity
+    if is_portal_belt(entity) then
+        register_portal_belt(entity)
+    end
+end)
+
+script.on_event(defines.events.on_robot_mined_entity, function(event)
+    handle_portal_belt_removed(event.entity)
+end)
+
+script.on_event(defines.events.on_player_mined_entity, function(event)
+    handle_portal_belt_removed(event.entity)
+end)
+
+-- 检查实体是否为传送带
+function is_portal_belt(entity)
+    if not entity or not entity.valid then return false end
+    
+    local portal_belt_types = {
+        "portal-underground-belt",
+        "portal-fast-underground-belt",
+        "portal-express-underground-belt",
+        "portal-turbo-underground-belt"
+    }
+    
+    for _, belt_type in pairs(portal_belt_types) do
+        if entity.name == belt_type then
+            return true
+        end
+    end
+    
+    return false
+end
+
+-- 注册传送带
+function register_portal_belt(entity, player_index)
+    local portal_id = global.next_portal_id
+    global.next_portal_id = global.next_portal_id + 1
+    
+    global.portal_belts[portal_id] = {
+        entity = entity,
+        surface = entity.surface.name,
+        position = {x = entity.position.x, y = entity.position.y},
+        direction = entity.direction,
+        type = entity.name,
+        paired_with = nil
+    }
+    
+    -- 如果是玩家放置的，显示配对界面
+    if player_index then
+        show_pairing_gui(player_index, portal_id)
+    end
+end
+
+-- 处理传送带移除
+function handle_portal_belt_removed(entity)
+    if not is_portal_belt(entity) then return end
+    
+    -- 查找并移除传送带
+    local portal_id_to_remove = nil
+    for id, portal in pairs(global.portal_belts) do
+        if portal.entity == entity then
+            portal_id_to_remove = id
+            break
+        end
+    end
+    
+    if portal_id_to_remove then
+        -- 如果有配对，解除配对
+        local paired_id = global.portal_belts[portal_id_to_remove].paired_with
+        if paired_id and global.portal_belts[paired_id] then
+            global.portal_belts[paired_id].paired_with = nil
+        end
+        
+        -- 移除传送带
+        global.portal_belts[portal_id_to_remove] = nil
+    end
+end
+
+-- 显示配对界面
+function show_pairing_gui(player_index, portal_id)
+    local player = game.players[player_index]
+    -- 创建配对界面
+    -- 这里需要实现GUI来让玩家选择要配对的另一个传送带
+    -- ...
+end
+
+-- 配对两个传送带
+function pair_portal_belts(portal_id1, portal_id2)
+    if not global.portal_belts[portal_id1] or not global.portal_belts[portal_id2] then
+        return false
+    end
+    
+    global.portal_belts[portal_id1].paired_with = portal_id2
+    global.portal_belts[portal_id2].paired_with = portal_id1
+    
+    return true
+end
+
+-- 每tick检查并传送物品
+script.on_event(defines.events.on_tick, function(event)
+    -- 遍历所有传送带
+    for id, portal in pairs(global.portal_belts) do
+        if portal.entity.valid and portal.paired_with and global.portal_belts[portal.paired_with] and global.portal_belts[portal.paired_with].entity.valid then
+            transfer_items(portal.entity, global.portal_belts[portal.paired_with].entity)
         end
     end
 end)
 
--- 玩家连接传送带的命令
-commands.add_command("connect_belts", "Connect two interplanetary belt endpoints", function(cmd)
-    local player = game.get_player(cmd.player_index)
-    local selected = player.selected
-
-    if not selected or selected.name ~= "interplanetary-underground-belt" then
-        player.print("Please select an interplanetary belt endpoint to connect.")
-        return
-    end
-
-    if not global.connection_start then
-        global.connection_start = selected
-        player.print("First endpoint selected on " .. selected.surface.name)
-    else
-        local start = global.connection_start
-        local target = selected
-
-        -- 创建连接
-        for _, endpoint in pairs(global.interplanetary_belts) do
-            if endpoint.entity == start then
-                endpoint.connected_to = target
-            elseif endpoint.entity == target then
-                endpoint.connected_to = start
-            end
-        end
-
-        player.print("Connected endpoints between " .. start.surface.name .. " and " .. target.surface.name)
-        global.connection_start = nil
-    end
-end)
-
--- 传送物品的逻辑
-script.on_event(defines.events.on_tick, function()
-    for _, endpoint in pairs(global.interplanetary_belts) do
-        local connected = endpoint.connected_to
-        if connected and connected.valid then
-            -- 检查传送带端点是否有物品
-            local transport_line = endpoint.entity.get_transport_line(2)
-            local items = transport_line.get_contents()
-
-            for item, count in pairs(items) do
-                -- 移除物品并在另一端生成
-                transport_line.remove_item({name = item, count = count})
-                local target_entity = connected
-                local target_transport_line = target_entity.get_transport_line(1)
-                target_transport_line.insert_at_back({name = item, count = count})
+-- 传送物品逻辑
+function transfer_items(source_belt, target_belt)
+    -- 获取传送带上的物品
+    local source_line = source_belt.get_transport_line(1)
+    local target_line = target_belt.get_transport_line(1)
+    
+    -- 检查源传送带是否有物品，目标传送带是否有空间
+    if not source_line.can_insert_at_back() and target_line.can_insert_at_back() then
+        -- 获取第一个物品
+        local item = source_line[1]
+        if item then
+            -- 从源传送带移除物品
+            local removed_item = source_line.remove_item({name = item.name, count = 1})
+            if removed_item > 0 then
+                -- 添加到目标传送带
+                target_line.insert_at_back({name = item.name, count = 1})
             end
         end
     end
-end)
+end
