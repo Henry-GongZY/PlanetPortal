@@ -67,7 +67,6 @@ function handle_portal_belt_removed(entity)
     end
 end
 
--- 检查实体是否为传送带
 -- 检查实体是否为传送带 - 添加更多调试信息
 function is_portal_belt(entity)
     if not entity or not entity.valid then return false end
@@ -133,7 +132,7 @@ script.on_event(defines.events.on_robot_mined_entity, function(event)
 end)
 
 -- 处理实体移除
--- 修改 handle_entity_removed 函数，保留传送带类型信息
+-- 修改 handle_entity_removed 函数，完全移除传送带记录：
 function handle_entity_removed(entity)
     if not entity or not entity.valid then return end
     
@@ -146,18 +145,9 @@ function handle_entity_removed(entity)
                     global.portal_belts[portal.paired_with].paired_with = nil
                 end
                 
-                -- 保留传送带类型信息
-                global.portal_belts[id] = {
-                    type = portal.type,  -- 保留原始类型
-                    surface = portal.surface,
-                    position = portal.position,
-                    direction = portal.direction,
-                    name = portal.name,
-                    paired_with = nil,
-                    entity = nil  -- 标记为无效实体
-                }
-                
-                log("传送门已移除，ID: " .. id .. " 类型: " .. portal.type)
+                -- 直接移除传送带记录
+                global.portal_belts[id] = nil
+                log("传送门已完全移除，ID: " .. id)
                 break
             end
         end
@@ -456,8 +446,7 @@ function register_portal_belt(entity, player_index)
     return portal_id
 end
 
--- 删除在 on_built_entity 事件中自动打开配对界面的代码
--- 只需保留注册传送带的功能
+-- 注册传送带功能
 script.on_event(defines.events.on_built_entity, function(event)
     local entity = event.created_entity
     if entity and entity.valid and is_portal_belt(entity) then
@@ -561,61 +550,57 @@ function show_pairing_gui(player_index, portal_id)
     global.players[player_index].configuring_portal_id = portal_id
 end
 
--- 修改 transfer_items 函数，根据传送带的方向传送物品
+-- 修改 transfer_items 函数，使用新的物品检测和传送逻辑
 function transfer_items(source_belt, target_belt)
-    -- 获取传送带上的物品
-    local source_line = source_belt.get_transport_line(1)
-    local target_line = target_belt.get_transport_line(1)
-    
-    -- 检查源传送带是否有物品，目标传送带是否有空间
-    if not source_line.can_insert_at_back() and target_line.can_insert_at_back() then
-        -- 获取第一个物品
-        local item = source_line[1]
-        if item then
-            -- 从源传送带移除物品
-            local removed_item = source_line.remove_item({name = item.name, count = 1})
-            if removed_item > 0 then
-                -- 添加到目标传送带
-                target_line.insert_at_back({name = item.name, count = 1})
+    -- 获取两条传送线（地下传送带通常有两条线）
+    for i = 1, 2 do
+        local source_line = source_belt.get_transport_line(i)
+        local target_line = target_belt.get_transport_line(i)
+        
+        -- 只在真正有物品时处理
+        local item_count = source_line.get_item_count()
+        if item_count > 0 then
+            -- 获取传送带上的所有物品
+            local contents = source_line.get_detailed_contents()
+            for item_name, count in pairs(contents) do
+                -- 尝试传送物品，使用物品名称字符串
+                if target_line.can_insert_at_back() then
+                    -- 直接使用物品名称字符串，而不是复杂的表结构
+                    local inserted = target_line.insert_at_back(count.stack, 1)
+                    if inserted == true then
+                        -- 成功插入后移除源物品
+                        source_line.remove_item(count.stack)
+                        log(string.format("成功传送物品: %s", item_name))
+                    end
+                end
             end
         end
     end
 end
 
--- 每tick检查并传送物品
--- 在文件开头添加全局变量初始化
--- 在 on_init 和 on_configuration_changed 事件中确保初始化 next_portal_id
-script.on_init(function()
-    global = global or {}
-    global.portal_belts = global.portal_belts or {}
-    global.next_portal_id = global.next_portal_id or 1  -- 确保初始化
-    global.players = global.players or {}
-end)
-
-script.on_configuration_changed(function()
-    global = global or {}
-    global.portal_belts = global.portal_belts or {}
-    global.next_portal_id = global.next_portal_id or 1  -- 确保初始化
-    global.players = global.players or {}
-end)
-
--- 修改 on_tick 事件处理，添加全局变量检查
+-- 修改 on_tick 事件处理，优化检查逻辑
 script.on_event(defines.events.on_tick, function(event)
-    -- 确保 global 变量已初始化
-    global = global or {}
-    global.portal_belts = global.portal_belts or {}
+    -- 每2个tick执行一次传送检查
+    if event.tick % 2 ~= 0 then return end
     
     -- 遍历所有传送带
     for id, portal in pairs(global.portal_belts) do
-        -- 只处理输入方向的传送带
-        if portal.direction == "in" and portal.entity and portal.entity.valid and 
-           portal.paired_with and global.portal_belts[portal.paired_with] and 
+        -- 只处理有效的输入传送带
+        if portal.direction == "in" and 
+           portal.entity and portal.entity.valid and 
+           portal.paired_with and 
+           global.portal_belts[portal.paired_with] and 
            global.portal_belts[portal.paired_with].entity and 
            global.portal_belts[portal.paired_with].entity.valid and
            global.portal_belts[portal.paired_with].direction == "out" then
             
-            -- 从输入传送带传送到输出传送带
-            transfer_items(portal.entity, global.portal_belts[portal.paired_with].entity)
+            -- 检查传送带类型是否匹配
+            local source = portal.entity
+            local target = global.portal_belts[portal.paired_with].entity
+            
+            if source.type == target.type then
+                transfer_items(source, target)
+            end
         end
     end
 end)
