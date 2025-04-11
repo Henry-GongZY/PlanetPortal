@@ -2,11 +2,10 @@
   "name": "planet-portal",
   "version": "0.1.0",
   "title": "Planet Portal",
-  "author": "HenryGong",
+  "author": "Henrygongzy",
   "factorio_version": "2.0",
-  "dependencies": [
-    "base",
-    "space-age"
-  ],
-  "description": "This mod provides a portal belt to transport infinite entities between planets."
+  "dependencies": ["base",
+                   "space-age"],
+  "description": "在This mod provides a portal belt to transport infinite entities between planets.",
+  "localizations": ["en", "zh"]
 }
