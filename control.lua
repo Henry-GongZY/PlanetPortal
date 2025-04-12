@@ -407,21 +407,20 @@ script.on_event(defines.events.on_tick, function(event)
 end)
 
 -- commands
-commands.add_command("list-portals", "列出所有传送门", function(command)
+commands.add_command("list-portals", {"cmd.list-portals"}, function(command)
     local player = game.players[command.player_index]
-    player.print("已注册的传送门:")
+    player.print({"cmd.registered-portals"})
     
     for id, portal in pairs(global.portal_belts) do
-        local status = "有效"
+        local status = {"cmd.valid"}
         if not portal.entity or not portal.entity.valid then
-            status = "无效"
+            status = {"cmd.invalid"}
         end
         
-        local direction = portal.direction or "未设置"
-        local name = portal.name or "未命名"
-        local paired = portal.paired_with and "已配对" or "未配对"
+        local direction = portal.direction or {"cmd.unset"}
+        local name = portal.name or {"cmd.unnamed"}
+        local paired = portal.paired_with and {"cmd.paired"} or {"cmd.unpaired"}
         
-        player.print(string.format("ID: %d, 名称: %s, 方向: %s, 状态: %s, 配对: %s", 
-                                  id, name, direction, status, paired))
+        player.print(string.format({"cmd.log"}, id, name, direction, status, paired))
     end
 end)
