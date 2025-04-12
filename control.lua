@@ -4,45 +4,8 @@
 --- DateTime: 25-1-5 下午3:25
 ---
 
--- 初始化全局变量
--- 在 on_init 事件中初始化 global 表
-script.on_init(function()
-    -- 确保 global 表已初始化
-    global = global or {}
-    -- 初始化您需要的全局变量
-    global.portal_belts = global.portal_belts or {}
-    global.next_portal_id = global.next_portal_id or 1
-end)
-
--- 检测传送带放置
-script.on_event(defines.events.on_built_entity, function(event)
-    local entity = event.created_entity
-    if entity and entity.valid and is_portal_belt(entity) then
-        register_portal_belt(entity, event.player_index)
-    end
-end)
-
--- 检测传送带移除
-script.on_event(defines.events.on_entity_died, function(event)
-    handle_portal_belt_removed(event.entity)
-end)
-
-script.on_event(defines.events.on_robot_built_entity, function(event)
-    local entity = event.created_entity
-    if is_portal_belt(entity) then
-        register_portal_belt(entity)
-    end
-end)
-
-script.on_event(defines.events.on_robot_mined_entity, function(event)
-    handle_portal_belt_removed(event.entity)
-end)
-
-script.on_event(defines.events.on_player_mined_entity, function(event)
-    handle_portal_belt_removed(event.entity)
-end)
-
--- 添加处理传送带移除的函数
+-- functions
+-- 处理传送带移除的函数
 function handle_portal_belt_removed(entity)
     if not entity or not is_portal_belt(entity) then return end
     
@@ -67,12 +30,12 @@ function handle_portal_belt_removed(entity)
     end
 end
 
--- 检查实体是否为传送带 - 添加更多调试信息
+-- 检查实体是否为传送带 
 function is_portal_belt(entity)
     if not entity or not entity.valid then return false end
     
     -- 添加调试日志
-    log("检查实体类型: " .. entity.name)
+    -- log("检查实体类型: " .. entity.name)
     
     local portal_belt_types = {
         "portal-underground-belt",
@@ -83,7 +46,7 @@ function is_portal_belt(entity)
     
     for _, belt_type in pairs(portal_belt_types) do
         if entity.name == belt_type then
-            log("找到传送门类型: " .. entity.name)
+            -- log("找到传送门类型: " .. entity.name)
             return true
         end
     end
@@ -91,48 +54,7 @@ function is_portal_belt(entity)
     return false
 end
 
--- 修改 on_built_entity 事件处理，添加更多调试信息
-script.on_event(defines.events.on_built_entity, function(event)
-    local entity = event.created_entity
-    if entity and entity.valid then
-        log("放置实体: " .. entity.name)
-        
-        if is_portal_belt(entity) then
-            log("识别为传送门，注册中...")
-            local portal_id = register_portal_belt(entity, event.player_index)
-            log("传送门注册完成，ID: " .. portal_id)
-            
-            -- 通知玩家（可选）
-            if event.player_index then
-                game.players[event.player_index].print("传送门已注册，ID: " .. portal_id)
-            end
-        end
-    end
-end)
-
--- 添加机器人建造事件处理
-script.on_event(defines.events.on_robot_built_entity, function(event)
-    local entity = event.created_entity
-    if entity and entity.valid and is_portal_belt(entity) then
-        register_portal_belt(entity)
-    end
-end)
-
--- 添加实体销毁事件处理
-script.on_event(defines.events.on_entity_died, function(event)
-    handle_entity_removed(event.entity)
-end)
-
-script.on_event(defines.events.on_player_mined_entity, function(event)
-    handle_entity_removed(event.entity)
-end)
-
-script.on_event(defines.events.on_robot_mined_entity, function(event)
-    handle_entity_removed(event.entity)
-end)
-
 -- 处理实体移除
--- 修改 handle_entity_removed 函数，完全移除传送带记录：
 function handle_entity_removed(entity)
     if not entity or not entity.valid then return end
     
@@ -147,109 +69,13 @@ function handle_entity_removed(entity)
                 
                 -- 直接移除传送带记录
                 global.portal_belts[id] = nil
-                log("传送门已完全移除，ID: " .. id)
                 break
             end
         end
     end
 end
 
--- 修改 register_portal_belt 函数，处理重建情况
-function register_portal_belt(entity, player_index)
-    -- 确保 next_portal_id 已初始化
-    global.next_portal_id = global.next_portal_id or 1
-    
-    -- 检查是否已有相同位置的无效传送带记录
-    local existing_id = nil
-    for id, portal in pairs(global.portal_belts) do
-        if not portal.entity and 
-           portal.surface == entity.surface.name and
-           math.abs(portal.position.x - entity.position.x) < 0.1 and
-           math.abs(portal.position.y - entity.position.y) < 0.1 and
-           portal.type == entity.name then
-            existing_id = id
-            break
-        end
-    end
-    
-    local portal_id
-    if existing_id then
-        -- 重用现有ID
-        portal_id = existing_id
-        global.portal_belts[portal_id].entity = entity
-        global.portal_belts[portal_id].direction = entity.belt_to_ground_type == "input" and "in" or "out"
-        log("重用传送门ID: " .. portal_id)
-    else
-        -- 创建新记录
-        portal_id = global.next_portal_id
-        global.next_portal_id = global.next_portal_id + 1
-    end
-    
-    -- 记录初始类型
-    local initial_direction = entity.belt_to_ground_type == "input" and "in" or "out"
-    
-    global.portal_belts[portal_id] = {
-        entity = entity,
-        surface = entity.surface.name,
-        position = {x = entity.position.x, y = entity.position.y},
-        direction = initial_direction,
-        type = entity.name,
-        name = nil,
-        paired_with = nil
-    }
-    
-    return portal_id
-end
-
--- 删除在 on_built_entity 事件中自动打开配对界面的代码
--- 只需保留注册传送带的功能
-script.on_event(defines.events.on_built_entity, function(event)
-    local entity = event.created_entity
-    if entity and entity.valid and is_portal_belt(entity) then
-        register_portal_belt(entity, event.player_index)
-    end
-end)
-
--- 添加选择实体变化事件监听（移到外部，不要放在 on_event 回调中）
-script.on_event(defines.events.on_selected_entity_changed, function(event)
-    local player = game.players[event.player_index]
-    local selected = player.selected
-    
-    -- 如果选中了传送带，不要立即显示配对界面
-    -- 只在玩家点击时显示（通过 portal-configure 事件处理）
-    if selected and selected.valid and is_portal_belt(selected) then
-        -- 不做任何操作，等待玩家点击
-    end
-end)
-
--- 修改自定义输入处理，在玩家点击传送带时显示配对界面
-script.on_event("portal-configure", function(event)
-    local player = game.players[event.player_index]
-    local selected = player.selected
-    
-    -- 如果选中了传送带，显示配对界面
-    if selected and selected.valid and is_portal_belt(selected) then
-        -- 查找传送带ID
-        local portal_id = nil
-        for id, portal in pairs(global.portal_belts) do
-            if portal.entity == selected then
-                portal_id = id
-                break
-            end
-        end
-        
-        -- 如果找到ID，显示配对界面
-        if portal_id then
-            show_pairing_gui(event.player_index, portal_id)
-        else
-            -- 如果没找到ID，可能是新放置的，需要注册
-            portal_id = register_portal_belt(selected, event.player_index)
-            show_pairing_gui(event.player_index, portal_id)
-        end
-    end
-end)
-
--- 修改 show_pairing_gui 函数，显示当前传送带的状态
+-- 显示当前传送带的状态
 function show_pairing_gui(player_index, portal_id)
     local player = game.players[player_index]
     local portal = global.portal_belts[portal_id]
@@ -305,6 +131,156 @@ function show_pairing_gui(player_index, portal_id)
     global.players[player_index] = global.players[player_index] or {}
     global.players[player_index].configuring_portal_id = portal_id
 end
+
+-- 配对两个传送带
+function pair_portal_belts(portal_id1, portal_id2)
+    if not global.portal_belts[portal_id1] or not global.portal_belts[portal_id2] then
+        return false
+    end
+    
+    global.portal_belts[portal_id1].paired_with = portal_id2
+    global.portal_belts[portal_id2].paired_with = portal_id1
+    
+    return true
+end
+
+-- 注册传送带
+function register_portal_belt(entity, player_index)
+    local portal_id = global.next_portal_id
+    global.next_portal_id = global.next_portal_id + 1
+    
+    -- 记录初始类型
+    local initial_direction = entity.belt_to_ground_type == "input" and "in" or "out"
+    
+    global.portal_belts[portal_id] = {
+        entity = entity,
+        surface = entity.surface.name,
+        position = {x = entity.position.x, y = entity.position.y},
+        direction = initial_direction, -- 设置为初始方向
+        type = entity.name,
+        name = nil, -- 通过GUI设置
+        paired_with = nil
+    }
+    
+    return portal_id
+end
+
+-- 物品检测和传送逻辑
+function transfer_items(source_belt, target_belt)
+    -- 获取两条传送线（地下传送带通常有两条线）
+    for i = 1, 2 do
+        local source_line = source_belt.get_transport_line(i)
+        local target_line = target_belt.get_transport_line(i)
+        
+        -- 只在真正有物品时处理
+        local item_count = source_line.get_item_count()
+        if item_count > 0 then
+            -- 获取传送带上的所有物品
+            local contents = source_line.get_detailed_contents()
+            for item_name, count in pairs(contents) do
+                -- 尝试传送物品，使用物品名称字符串
+                if target_line.can_insert_at_back() then
+                    -- 直接使用物品名称字符串，而不是复杂的表结构
+                    local inserted = target_line.insert_at_back(count.stack, 1)
+                    if inserted == true then
+                        -- 成功插入后移除源物品
+                        source_line.remove_item(count.stack)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- 工具函数，检查表中是否包含某个值
+function table.contains(table, value)
+    for _, v in pairs(table) do
+        if v == value then
+            return true
+        end
+    end
+    return false
+end
+
+-- events
+-- 初始化全局变量，在 on_init 事件中初始化 global 表
+script.on_init(function()
+    -- 确保 global 表已初始化
+    global = global or {}
+    -- 初始化您需要的全局变量
+    global.portal_belts = global.portal_belts or {}
+    global.next_portal_id = global.next_portal_id or 1
+end)
+
+-- 检测传送带放置
+script.on_event(defines.events.on_built_entity, function(event)
+    local entity = event.created_entity
+    if entity and entity.valid and is_portal_belt(entity) then
+        register_portal_belt(entity, event.player_index)
+    end
+end)
+
+-- 检测传送带移除
+script.on_event(defines.events.on_entity_died, function(event)
+    handle_portal_belt_removed(event.entity)
+end)
+
+-- 检测机器人建造
+script.on_event(defines.events.on_robot_built_entity, function(event)
+    local entity = event.created_entity
+    if entity and entity.valid and is_portal_belt(entity) then
+        register_portal_belt(entity)
+    end
+end)
+
+-- 检测机器人移除
+script.on_event(defines.events.on_robot_mined_entity, function(event)
+    handle_portal_belt_removed(event.entity)
+end)
+
+-- 检测人类移除
+script.on_event(defines.events.on_player_mined_entity, function(event)
+    handle_portal_belt_removed(event.entity)
+end)
+
+-- 添加选择实体变化事件监听（移到外部，不要放在 on_event 回调中）
+script.on_event(defines.events.on_selected_entity_changed, function(event)
+    local player = game.players[event.player_index]
+    local selected = player.selected
+    
+    -- 如果选中了传送带，不要立即显示配对界面
+    -- 只在玩家点击时显示（通过 portal-configure 事件处理）
+    if selected and selected.valid and is_portal_belt(selected) then
+        -- 不做任何操作，等待玩家点击
+    end
+end)
+
+-- 在玩家点击传送带时显示配对界面
+script.on_event("portal-configure", function(event)
+    local player = game.players[event.player_index]
+    local selected = player.selected
+    
+    -- 如果选中了传送带，显示配对界面
+    if selected and selected.valid and is_portal_belt(selected) then
+        -- 查找传送带ID
+        local portal_id = nil
+        for id, portal in pairs(global.portal_belts) do
+            if portal.entity == selected then
+                portal_id = id
+                break
+            end
+        end
+        
+        -- 如果找到ID，显示配对界面
+        if portal_id then
+            show_pairing_gui(event.player_index, portal_id)
+        else
+            -- 如果没找到ID，可能是新放置的，需要注册
+            portal_id = register_portal_belt(selected, event.player_index)
+            show_pairing_gui(event.player_index, portal_id)
+        end
+    end
+end)
 
 -- 处理GUI点击事件
 script.on_event(defines.events.on_gui_click, function(event)
@@ -403,182 +379,7 @@ script.on_event(defines.events.on_gui_click, function(event)
     end
 end)
 
--- 辅助函数：检查表中是否包含某个值
-function table.contains(table, value)
-    for _, v in pairs(table) do
-        if v == value then
-            return true
-        end
-    end
-    return false
-end
-
--- 配对两个传送带
-function pair_portal_belts(portal_id1, portal_id2)
-    if not global.portal_belts[portal_id1] or not global.portal_belts[portal_id2] then
-        return false
-    end
-    
-    global.portal_belts[portal_id1].paired_with = portal_id2
-    global.portal_belts[portal_id2].paired_with = portal_id1
-    
-    return true
-end
-
--- 修改 register_portal_belt 函数，记录初始类型
-function register_portal_belt(entity, player_index)
-    local portal_id = global.next_portal_id
-    global.next_portal_id = global.next_portal_id + 1
-    
-    -- 记录初始类型
-    local initial_direction = entity.belt_to_ground_type == "input" and "in" or "out"
-    
-    global.portal_belts[portal_id] = {
-        entity = entity,
-        surface = entity.surface.name,
-        position = {x = entity.position.x, y = entity.position.y},
-        direction = initial_direction, -- 设置为初始方向
-        type = entity.name,
-        name = nil, -- 通过GUI设置
-        paired_with = nil
-    }
-    
-    return portal_id
-end
-
--- 注册传送带功能
-script.on_event(defines.events.on_built_entity, function(event)
-    local entity = event.created_entity
-    if entity and entity.valid and is_portal_belt(entity) then
-        register_portal_belt(entity, event.player_index)
-    end
-end)
-
--- 添加选择实体变化事件监听（移到外部，不要放在 on_event 回调中）
-script.on_event(defines.events.on_selected_entity_changed, function(event)
-    local player = game.players[event.player_index]
-    local selected = player.selected
-    
-    -- 如果选中了传送带，不要立即显示配对界面
-    -- 只在玩家点击时显示（通过 portal-configure 事件处理）
-    if selected and selected.valid and is_portal_belt(selected) then
-        -- 不做任何操作，等待玩家点击
-    end
-end)
-
--- 修改自定义输入处理，在玩家点击传送带时显示配对界面
-script.on_event("portal-configure", function(event)
-    local player = game.players[event.player_index]
-    local selected = player.selected
-    
-    -- 如果选中了传送带，显示配对界面
-    if selected and selected.valid and is_portal_belt(selected) then
-        -- 查找传送带ID
-        local portal_id = nil
-        for id, portal in pairs(global.portal_belts) do
-            if portal.entity == selected then
-                portal_id = id
-                break
-            end
-        end
-        
-        -- 如果找到ID，显示配对界面
-        if portal_id then
-            show_pairing_gui(event.player_index, portal_id)
-        else
-            -- 如果没找到ID，可能是新放置的，需要注册
-            portal_id = register_portal_belt(selected, event.player_index)
-            show_pairing_gui(event.player_index, portal_id)
-        end
-    end
-end)
-
--- 修改 show_pairing_gui 函数，显示当前传送带的状态
-function show_pairing_gui(player_index, portal_id)
-    local player = game.players[player_index]
-    local portal = global.portal_belts[portal_id]
-    
-    -- 关闭已存在的配对界面
-    if player.gui.center.portal_pairing_frame then
-        player.gui.center.portal_pairing_frame.destroy()
-    end
-    
-    -- 创建配对界面
-    local frame = player.gui.center.add({
-        type = "frame",
-        name = "portal_pairing_frame",
-        caption = {"gui.portal-pairing-title"}
-    })
-    
-    local main_flow = frame.add({type = "flow", name = "main_flow", direction = "vertical"})
-    
-    -- 添加方向选择（in/out）
-    local direction_flow = main_flow.add({type = "flow", name = "direction_flow", direction = "horizontal"})
-    direction_flow.add({type = "label", caption = {"gui.portal-direction-label"}})
-    local direction_dropdown = direction_flow.add({
-        type = "drop-down",
-        name = "portal_direction_dropdown",
-        items = {{"gui.portal-direction-in"}, {"gui.portal-direction-out"}},
-        selected_index = (portal.direction == "out") and 2 or 1 -- 根据当前状态设置默认值
-    })
-    
-    -- 添加名称输入框
-    local name_flow = main_flow.add({type = "flow", name = "name_flow", direction = "horizontal"})
-    name_flow.add({type = "label", caption = {"gui.portal-name-label"}})
-    local name_textfield = name_flow.add({
-        type = "textfield",
-        name = "portal_name_textfield",
-        text = portal.name or "" -- 显示当前名称
-    })
-    
-    -- 添加确认和取消按钮
-    local button_flow = main_flow.add({type = "flow", name = "button_flow", direction = "horizontal"})
-    button_flow.add({
-        type = "button",
-        name = "portal_confirm_button",
-        caption = {"gui.confirm"}
-    })
-    button_flow.add({
-        type = "button",
-        name = "portal_cancel_button",
-        caption = {"gui.cancel"}
-    })
-    
-    -- 存储当前正在配置的传送带ID
-    global.players = global.players or {}
-    global.players[player_index] = global.players[player_index] or {}
-    global.players[player_index].configuring_portal_id = portal_id
-end
-
--- 修改 transfer_items 函数，使用新的物品检测和传送逻辑
-function transfer_items(source_belt, target_belt)
-    -- 获取两条传送线（地下传送带通常有两条线）
-    for i = 1, 2 do
-        local source_line = source_belt.get_transport_line(i)
-        local target_line = target_belt.get_transport_line(i)
-        
-        -- 只在真正有物品时处理
-        local item_count = source_line.get_item_count()
-        if item_count > 0 then
-            -- 获取传送带上的所有物品
-            local contents = source_line.get_detailed_contents()
-            for item_name, count in pairs(contents) do
-                -- 尝试传送物品，使用物品名称字符串
-                if target_line.can_insert_at_back() then
-                    -- 直接使用物品名称字符串，而不是复杂的表结构
-                    local inserted = target_line.insert_at_back(count.stack, 1)
-                    if inserted == true then
-                        -- 成功插入后移除源物品
-                        source_line.remove_item(count.stack)
-                        log(string.format("成功传送物品: %s", item_name))
-                    end
-                end
-            end
-        end
-    end
-end
-
--- 修改 on_tick 事件处理，优化检查逻辑
+-- 执行传送检查
 script.on_event(defines.events.on_tick, function(event)
     -- 每2个tick执行一次传送检查
     if event.tick % 2 ~= 0 then return end
@@ -605,7 +406,7 @@ script.on_event(defines.events.on_tick, function(event)
     end
 end)
 
-
+-- commands
 commands.add_command("list-portals", "列出所有传送门", function(command)
     local player = game.players[command.player_index]
     player.print("已注册的传送门:")
