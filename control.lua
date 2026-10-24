@@ -5,70 +5,90 @@
 ---
 
 -- functions
+-- Factorio 2.0+ 中 global 已被移除，改用 storage。
+-- 兼容已有存档（on_init 不会再触发），在各个入口处懒初始化。
+local function ensure_storage()
+    storage.portal_belts = storage.portal_belts or {}
+    storage.players = storage.players or {}
+    storage.next_portal_id = storage.next_portal_id or 1
+end
+
+-- 工具函数，检查表中是否包含某个值
+local function table_contains(tbl, value)
+    for _, v in pairs(tbl) do
+        if v == value then
+            return true
+        end
+    end
+    return false
+end
+
 -- 处理传送带移除的函数
 function handle_portal_belt_removed(entity)
     if not entity or not is_portal_belt(entity) then return end
-    
+    ensure_storage()
+
     -- 查找并移除传送带
     local portal_id_to_remove = nil
-    for id, portal in pairs(global.portal_belts) do
+    for id, portal in pairs(storage.portal_belts) do
         if portal.entity == entity then
             portal_id_to_remove = id
             break
         end
     end
-    
+
     if portal_id_to_remove then
         -- 如果有配对，解除配对
-        local paired_id = global.portal_belts[portal_id_to_remove].paired_with
-        if paired_id and global.portal_belts[paired_id] then
-            global.portal_belts[paired_id].paired_with = nil
+        local paired_id = storage.portal_belts[portal_id_to_remove].paired_with
+        if paired_id and storage.portal_belts[paired_id] then
+            storage.portal_belts[paired_id].paired_with = nil
         end
-        
+
         -- 移除传送带
-        global.portal_belts[portal_id_to_remove] = nil
+        storage.portal_belts[portal_id_to_remove] = nil
     end
 end
 
--- 检查实体是否为传送带 
+-- 检查实体是否为传送带
 function is_portal_belt(entity)
     if not entity or not entity.valid then return false end
-    
+
     -- 添加调试日志
     -- log("检查实体类型: " .. entity.name)
-    
+
     local portal_belt_types = {
         "portal-underground-belt",
         "portal-fast-underground-belt",
         "portal-express-underground-belt",
         "portal-turbo-underground-belt"
     }
-    
+
     for _, belt_type in pairs(portal_belt_types) do
         if entity.name == belt_type then
             -- log("找到传送门类型: " .. entity.name)
             return true
         end
     end
-    
+
     return false
 end
 
 -- 处理实体移除
 function handle_entity_removed(entity)
     if not entity or not entity.valid then return end
-    
+    ensure_storage()
+
     if is_portal_belt(entity) then
         -- 查找对应的传送带ID
-        for id, portal in pairs(global.portal_belts) do
+        for id, portal in pairs(storage.portal_belts) do
             if portal.entity == entity then
                 -- 如果有配对，解除配对
-                if portal.paired_with and global.portal_belts[portal.paired_with] then
-                    global.portal_belts[portal.paired_with].paired_with = nil
+                if portal.paired_with and storage.portal_belts[portal.paired_with] then
+                    storage.portal_belts[portal.paired_with].paired_with = nil
                 end
-                
+
                 -- 直接移除传送带记录
-                global.portal_belts[id] = nil
+                storage.portal_belts[id] = nil
                 break
             end
         end
@@ -77,23 +97,24 @@ end
 
 -- 显示当前传送带的状态
 function show_pairing_gui(player_index, portal_id)
+    ensure_storage()
     local player = game.players[player_index]
-    local portal = global.portal_belts[portal_id]
-    
+    local portal = storage.portal_belts[portal_id]
+
     -- 关闭已存在的配对界面
     if player.gui.center.portal_pairing_frame then
         player.gui.center.portal_pairing_frame.destroy()
     end
-    
+
     -- 创建配对界面
     local frame = player.gui.center.add({
         type = "frame",
         name = "portal_pairing_frame",
         caption = {"gui.portal-pairing-title"}
     })
-    
+
     local main_flow = frame.add({type = "flow", name = "main_flow", direction = "vertical"})
-    
+
     -- 添加方向选择（in/out）
     local direction_flow = main_flow.add({type = "flow", name = "direction_flow", direction = "horizontal"})
     direction_flow.add({type = "label", caption = {"gui.portal-direction-label"}})
@@ -101,9 +122,9 @@ function show_pairing_gui(player_index, portal_id)
         type = "drop-down",
         name = "portal_direction_dropdown",
         items = {{"gui.portal-direction-in"}, {"gui.portal-direction-out"}},
-        selected_index = (portal.direction == "out") and 2 or 1 -- 根据当前状态设置默认值
+        selected_index = (portal and portal.direction == "out") and 2 or 1 -- 根据当前状态设置默认值
     })
-    
+
     -- 添加名称输入框
     local name_flow = main_flow.add({type = "flow", name = "name_flow", direction = "horizontal"})
     name_flow.add({type = "label", caption = {"gui.portal-name-label"}})
@@ -112,7 +133,7 @@ function show_pairing_gui(player_index, portal_id)
         name = "portal_name_textfield",
         text = ""
     })
-    
+
     -- 添加确认和取消按钮
     local button_flow = main_flow.add({type = "flow", name = "button_flow", direction = "horizontal"})
     button_flow.add({
@@ -125,34 +146,35 @@ function show_pairing_gui(player_index, portal_id)
         name = "portal_cancel_button",
         caption = {"gui.cancel"}
     })
-    
+
     -- 存储当前正在配置的传送带ID
-    global.players = global.players or {}
-    global.players[player_index] = global.players[player_index] or {}
-    global.players[player_index].configuring_portal_id = portal_id
+    storage.players[player_index] = storage.players[player_index] or {}
+    storage.players[player_index].configuring_portal_id = portal_id
 end
 
 -- 配对两个传送带
 function pair_portal_belts(portal_id1, portal_id2)
-    if not global.portal_belts[portal_id1] or not global.portal_belts[portal_id2] then
+    ensure_storage()
+    if not storage.portal_belts[portal_id1] or not storage.portal_belts[portal_id2] then
         return false
     end
-    
-    global.portal_belts[portal_id1].paired_with = portal_id2
-    global.portal_belts[portal_id2].paired_with = portal_id1
-    
+
+    storage.portal_belts[portal_id1].paired_with = portal_id2
+    storage.portal_belts[portal_id2].paired_with = portal_id1
+
     return true
 end
 
 -- 注册传送带
 function register_portal_belt(entity, player_index)
-    local portal_id = global.next_portal_id
-    global.next_portal_id = global.next_portal_id + 1
-    
+    ensure_storage()
+    local portal_id = storage.next_portal_id
+    storage.next_portal_id = storage.next_portal_id + 1
+
     -- 记录初始类型
     local initial_direction = entity.belt_to_ground_type == "input" and "in" or "out"
-    
-    global.portal_belts[portal_id] = {
+
+    storage.portal_belts[portal_id] = {
         entity = entity,
         surface = entity.surface.name,
         position = {x = entity.position.x, y = entity.position.y},
@@ -161,30 +183,45 @@ function register_portal_belt(entity, player_index)
         name = nil, -- 通过GUI设置
         paired_with = nil
     }
-    
+
     return portal_id
 end
 
 -- 物品检测和传送逻辑
 function transfer_items(source_belt, target_belt)
-    -- 获取两条传送线（地下传送带通常有两条线）
+    -- 地下传送带有两条传送线（左右各一），逐线配对传送
     for i = 1, 2 do
         local source_line = source_belt.get_transport_line(i)
         local target_line = target_belt.get_transport_line(i)
-        
-        -- 只在真正有物品时处理
-        local item_count = source_line.get_item_count()
-        if item_count > 0 then
-            -- 获取传送带上的所有物品
+
+        if source_line and target_line and source_line.valid and target_line.valid
+           and source_line.get_item_count() > 0 then
+
+            -- 2.0 的 get_detailed_contents() 返回数组，每项的物品字段是 stack（LuaItemStack）
             local contents = source_line.get_detailed_contents()
-            for item_name, count in pairs(contents) do
-                -- 尝试传送物品，使用物品名称字符串
-                if target_line.can_insert_at_back() then
-                    -- 直接使用物品名称字符串，而不是复杂的表结构
-                    local inserted = target_line.insert_at_back(count.stack, 1)
-                    if inserted == true then
-                        -- 成功插入后移除源物品
-                        source_line.remove_item(count.stack)
+
+            -- 先快照物品信息，避免边传送边遍历导致引用失效
+            local specs = {}
+            for _, detail in pairs(contents) do
+                local stack = detail.stack
+                if stack and stack.valid and stack.name and stack.count > 0 then
+                    specs[#specs + 1] = {
+                        name = stack.name,
+                        quality = stack.quality and stack.quality.name or "normal",
+                        count = stack.count
+                    }
+                end
+            end
+
+            -- 逐个把物品从源线搬到目标线后端，目标装不下就停
+            for _, spec in pairs(specs) do
+                local item = {name = spec.name, quality = spec.quality, count = 1}
+                for _ = 1, spec.count do
+                    if not target_line.can_insert_at_back() then break end
+                    if target_line.insert_at_back(item) then
+                        source_line.remove_item(item)
+                    else
+                        break
                     end
                 end
             end
@@ -192,24 +229,15 @@ function transfer_items(source_belt, target_belt)
     end
 end
 
--- 工具函数，检查表中是否包含某个值
-function table.contains(table, value)
-    for _, v in pairs(table) do
-        if v == value then
-            return true
-        end
-    end
-    return false
-end
-
 -- events
--- 初始化全局变量，在 on_init 事件中初始化 global 表
+-- 初始化存储表，在 on_init 事件中初始化 storage（Factorio 2.0+ 用 storage 代替 global）
 script.on_init(function()
-    -- 确保 global 表已初始化
-    global = global or {}
-    -- 初始化您需要的全局变量
-    global.portal_belts = global.portal_belts or {}
-    global.next_portal_id = global.next_portal_id or 1
+    ensure_storage()
+end)
+
+-- 存档迁移兜底：版本或 mod 配置变化时确保 storage 已初始化
+script.on_configuration_changed(function()
+    ensure_storage()
 end)
 
 -- 检测传送带放置
@@ -247,7 +275,7 @@ end)
 script.on_event(defines.events.on_selected_entity_changed, function(event)
     local player = game.players[event.player_index]
     local selected = player.selected
-    
+
     -- 如果选中了传送带，不要立即显示配对界面
     -- 只在玩家点击时显示（通过 portal-configure 事件处理）
     if selected and selected.valid and is_portal_belt(selected) then
@@ -257,20 +285,21 @@ end)
 
 -- 在玩家点击传送带时显示配对界面
 script.on_event("portal-configure", function(event)
+    ensure_storage()
     local player = game.players[event.player_index]
     local selected = player.selected
-    
+
     -- 如果选中了传送带，显示配对界面
     if selected and selected.valid and is_portal_belt(selected) then
         -- 查找传送带ID
         local portal_id = nil
-        for id, portal in pairs(global.portal_belts) do
+        for id, portal in pairs(storage.portal_belts) do
             if portal.entity == selected then
                 portal_id = id
                 break
             end
         end
-        
+
         -- 如果找到ID，显示配对界面
         if portal_id then
             show_pairing_gui(event.player_index, portal_id)
@@ -284,82 +313,83 @@ end)
 
 -- 处理GUI点击事件
 script.on_event(defines.events.on_gui_click, function(event)
+    ensure_storage()
     local player = game.players[event.player_index]
     local element = event.element
-    
+
     if not element or not element.valid then return end
-    
+
     -- 处理确认按钮点击
     if element.name == "portal_confirm_button" then
         local frame = player.gui.center.portal_pairing_frame
         if not frame then return end
-        
+
         local direction_dropdown = frame.main_flow.direction_flow.portal_direction_dropdown
         local name_textfield = frame.main_flow.name_flow.portal_name_textfield
-        
+
         local direction = direction_dropdown.selected_index == 1 and "in" or "out"
         local portal_name = name_textfield.text
-        
+
         -- 验证名称不为空
         if portal_name == "" then
             player.print({"gui.portal-name-empty"})
             return
         end
-        
+
         -- 获取当前配置的传送带ID
-        local portal_id = global.players[event.player_index].configuring_portal_id
-        if not portal_id or not global.portal_belts[portal_id] then
+        local player_data = storage.players[event.player_index]
+        local portal_id = player_data and player_data.configuring_portal_id
+        if not portal_id or not storage.portal_belts[portal_id] then
             player.print({"gui.portal-not-found"})
             frame.destroy()
             return
         end
-        
+
         -- 检查是否有同名传送带
         local same_name_portals = {}
-        for id, portal in pairs(global.portal_belts) do
+        for id, portal in pairs(storage.portal_belts) do
             if portal.name == portal_name then
                 table.insert(same_name_portals, id)
             end
         end
-        
+
         -- 设置当前传送带的名称和方向
-        global.portal_belts[portal_id].name = portal_name
-        global.portal_belts[portal_id].direction = direction
-        
+        storage.portal_belts[portal_id].name = portal_name
+        storage.portal_belts[portal_id].direction = direction
+
         -- 删除尝试修改 belt_to_ground_type 的代码
         -- 替换为旋转传送带的代码
-        if global.portal_belts[portal_id].entity and global.portal_belts[portal_id].entity.valid then
-            local entity = global.portal_belts[portal_id].entity
+        if storage.portal_belts[portal_id].entity and storage.portal_belts[portal_id].entity.valid then
+            local entity = storage.portal_belts[portal_id].entity
             local current_type = entity.belt_to_ground_type
-            
+
             -- 如果当前类型与期望方向不匹配，旋转传送带
-            if (current_type == "input" and direction == "out") or 
+            -- 2.0 中一次 rotate() 即 180° 掉头并切换 input/output，转两次等于没转
+            if (current_type == "input" and direction == "out") or
                (current_type == "output" and direction == "in") then
-                -- 旋转180度
-                entity.rotate()
                 entity.rotate()
             end
         end
-        
+
         -- 检查配对条件
         if #same_name_portals > 0 then
             -- 如果已经有两个同名传送带，且当前不是其中之一
-            if #same_name_portals >= 2 and not table.contains(same_name_portals, portal_id) then
+            if #same_name_portals >= 2 and not table_contains(same_name_portals, portal_id) then
                 player.print({"gui.portal-name-exists"})
                 return
             end
-            
+
             -- 检查是否有同名且方向相同的传送带
             for _, id in ipairs(same_name_portals) do
-                if id ~= portal_id and global.portal_belts[id].direction == direction then
+                if id ~= portal_id and storage.portal_belts[id].direction == direction then
                     player.print({"gui.portal-same-direction"})
                     return
                 end
             end
-            
+
             -- 尝试配对
             for _, id in ipairs(same_name_portals) do
-                if id ~= portal_id and global.portal_belts[id].direction ~= direction then
+                if id ~= portal_id and storage.portal_belts[id].direction ~= direction then
                     -- 配对成功
                     pair_portal_belts(portal_id, id)
                     player.print({"gui.portal-paired-success"})
@@ -367,10 +397,10 @@ script.on_event(defines.events.on_gui_click, function(event)
                 end
             end
         end
-        
+
         -- 关闭界面
         frame.destroy()
-    
+
     -- 处理取消按钮点击
     elseif element.name == "portal_cancel_button" then
         if player.gui.center.portal_pairing_frame then
@@ -383,22 +413,24 @@ end)
 script.on_event(defines.events.on_tick, function(event)
     -- 每2个tick执行一次传送检查
     if event.tick % 2 ~= 0 then return end
-    
+
+    ensure_storage()
+
     -- 遍历所有传送带
-    for id, portal in pairs(global.portal_belts) do
+    for id, portal in pairs(storage.portal_belts) do
         -- 只处理有效的输入传送带
-        if portal.direction == "in" and 
-           portal.entity and portal.entity.valid and 
-           portal.paired_with and 
-           global.portal_belts[portal.paired_with] and 
-           global.portal_belts[portal.paired_with].entity and 
-           global.portal_belts[portal.paired_with].entity.valid and
-           global.portal_belts[portal.paired_with].direction == "out" then
-            
+        if portal.direction == "in" and
+           portal.entity and portal.entity.valid and
+           portal.paired_with and
+           storage.portal_belts[portal.paired_with] and
+           storage.portal_belts[portal.paired_with].entity and
+           storage.portal_belts[portal.paired_with].entity.valid and
+           storage.portal_belts[portal.paired_with].direction == "out" then
+
             -- 检查传送带类型是否匹配
             local source = portal.entity
-            local target = global.portal_belts[portal.paired_with].entity
-            
+            local target = storage.portal_belts[portal.paired_with].entity
+
             if source.type == target.type then
                 transfer_items(source, target)
             end
@@ -406,21 +438,48 @@ script.on_event(defines.events.on_tick, function(event)
     end
 end)
 
+-- 供其他 mod 或自动化测试调用的远程接口
+remote.add_interface("planet-portal", {
+    register = function(entity)
+        if not is_portal_belt(entity) then return nil end
+        return register_portal_belt(entity)
+    end,
+    pair = function(portal_id1, portal_id2)
+        return pair_portal_belts(portal_id1, portal_id2)
+    end,
+    get_portals = function()
+        ensure_storage()
+        local result = {}
+        for id, portal in pairs(storage.portal_belts) do
+            result[id] = {
+                name = portal.name,
+                direction = portal.direction,
+                type = portal.type,
+                paired_with = portal.paired_with,
+                surface = portal.surface,
+                valid = portal.entity ~= nil and portal.entity.valid
+            }
+        end
+        return result
+    end
+})
+
 -- commands
 commands.add_command("list-portals", {"cmd.list-portals"}, function(command)
+    ensure_storage()
     local player = game.players[command.player_index]
     player.print({"cmd.registered-portals"})
-    
-    for id, portal in pairs(global.portal_belts) do
+
+    for id, portal in pairs(storage.portal_belts) do
         local status = {"cmd.valid"}
         if not portal.entity or not portal.entity.valid then
             status = {"cmd.invalid"}
         end
-        
+
         local direction = portal.direction or {"cmd.unset"}
         local name = portal.name or {"cmd.unnamed"}
         local paired = portal.paired_with and {"cmd.paired"} or {"cmd.unpaired"}
-        
+
         player.print(string.format({"cmd.log"}, id, name, direction, status, paired))
     end
 end)
