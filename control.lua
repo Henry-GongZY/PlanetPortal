@@ -115,23 +115,23 @@ function show_pairing_gui(player_index, portal_id)
 
     local main_flow = frame.add({type = "flow", name = "main_flow", direction = "vertical"})
 
-    -- 添加方向选择（in/out）
-    local direction_flow = main_flow.add({type = "flow", name = "direction_flow", direction = "horizontal"})
-    direction_flow.add({type = "label", caption = {"gui.portal-direction-label"}})
-    local direction_dropdown = direction_flow.add({
-        type = "drop-down",
-        name = "portal_direction_dropdown",
-        items = {{"gui.portal-direction-in"}, {"gui.portal-direction-out"}},
-        selected_index = (portal and portal.direction == "out") and 2 or 1 -- 根据当前状态设置默认值
+    -- 只读显示当前形态（进出口由实体本身决定，对带子按 R 即可翻转，无需在此选择）
+    local entity = portal and portal.entity
+    local form = (entity and entity.valid and entity.belt_to_ground_type == "output")
+        and {"gui.portal-direction-out"} or {"gui.portal-direction-in"}
+    main_flow.add({
+        type = "label",
+        name = "portal_form_label",
+        caption = {"gui.portal-form-label", form}
     })
 
-    -- 添加名称输入框
+    -- 添加名称输入框（预填现有名称，便于改名/核对）
     local name_flow = main_flow.add({type = "flow", name = "name_flow", direction = "horizontal"})
     name_flow.add({type = "label", caption = {"gui.portal-name-label"}})
     local name_textfield = name_flow.add({
         type = "textfield",
         name = "portal_name_textfield",
-        text = ""
+        text = (portal and portal.name) or ""
     })
 
     -- 添加确认和取消按钮
@@ -171,14 +171,11 @@ function register_portal_belt(entity, player_index)
     local portal_id = storage.next_portal_id
     storage.next_portal_id = storage.next_portal_id + 1
 
-    -- 记录初始类型
-    local initial_direction = entity.belt_to_ground_type == "input" and "in" or "out"
-
+    -- 进出口方向不在此保存：以实体实时的 belt_to_ground_type 为准（按 R 翻转）
     storage.portal_belts[portal_id] = {
         entity = entity,
         surface = entity.surface.name,
         position = {x = entity.position.x, y = entity.position.y},
-        direction = initial_direction, -- 设置为初始方向
         type = entity.name,
         name = nil, -- 通过GUI设置
         paired_with = nil
@@ -324,10 +321,7 @@ script.on_event(defines.events.on_gui_click, function(event)
         local frame = player.gui.center.portal_pairing_frame
         if not frame then return end
 
-        local direction_dropdown = frame.main_flow.direction_flow.portal_direction_dropdown
         local name_textfield = frame.main_flow.name_flow.portal_name_textfield
-
-        local direction = direction_dropdown.selected_index == 1 and "in" or "out"
         local portal_name = name_textfield.text
 
         -- 验证名称不为空
@@ -345,6 +339,15 @@ script.on_event(defines.events.on_gui_click, function(event)
             return
         end
 
+        -- 进出口以实体当前形态为准（按 R 翻转），GUI 不再设置方向
+        local my_entity = storage.portal_belts[portal_id].entity
+        if not my_entity or not my_entity.valid then
+            player.print({"gui.portal-not-found"})
+            frame.destroy()
+            return
+        end
+        local my_type = my_entity.belt_to_ground_type
+
         -- 检查是否有同名传送带
         local same_name_portals = {}
         for id, portal in pairs(storage.portal_belts) do
@@ -353,23 +356,8 @@ script.on_event(defines.events.on_gui_click, function(event)
             end
         end
 
-        -- 设置当前传送带的名称和方向
+        -- 设置当前传送带的名称
         storage.portal_belts[portal_id].name = portal_name
-        storage.portal_belts[portal_id].direction = direction
-
-        -- 删除尝试修改 belt_to_ground_type 的代码
-        -- 替换为旋转传送带的代码
-        if storage.portal_belts[portal_id].entity and storage.portal_belts[portal_id].entity.valid then
-            local entity = storage.portal_belts[portal_id].entity
-            local current_type = entity.belt_to_ground_type
-
-            -- 如果当前类型与期望方向不匹配，旋转传送带
-            -- 2.0 中一次 rotate() 即 180° 掉头并切换 input/output，转两次等于没转
-            if (current_type == "input" and direction == "out") or
-               (current_type == "output" and direction == "in") then
-                entity.rotate()
-            end
-        end
 
         -- 检查配对条件
         if #same_name_portals > 0 then
@@ -379,21 +367,29 @@ script.on_event(defines.events.on_gui_click, function(event)
                 return
             end
 
-            -- 检查是否有同名且方向相同的传送带
+            -- 检查是否有同名且形态相同的传送带（需要一进一出才能配对）
             for _, id in ipairs(same_name_portals) do
-                if id ~= portal_id and storage.portal_belts[id].direction == direction then
-                    player.print({"gui.portal-same-direction"})
-                    return
+                if id ~= portal_id then
+                    local other_entity = storage.portal_belts[id].entity
+                    if other_entity and other_entity.valid
+                       and other_entity.belt_to_ground_type == my_type then
+                        player.print({"gui.portal-same-direction"})
+                        return
+                    end
                 end
             end
 
-            -- 尝试配对
+            -- 尝试配对：同名且形态相反
             for _, id in ipairs(same_name_portals) do
-                if id ~= portal_id and storage.portal_belts[id].direction ~= direction then
-                    -- 配对成功
-                    pair_portal_belts(portal_id, id)
-                    player.print({"gui.portal-paired-success"})
-                    break
+                if id ~= portal_id then
+                    local other_entity = storage.portal_belts[id].entity
+                    if other_entity and other_entity.valid
+                       and other_entity.belt_to_ground_type ~= my_type then
+                        -- 配对成功
+                        pair_portal_belts(portal_id, id)
+                        player.print({"gui.portal-paired-success"})
+                        break
+                    end
                 end
             end
         end
@@ -418,20 +414,15 @@ script.on_event(defines.events.on_tick, function(event)
 
     -- 遍历所有传送带
     for id, portal in pairs(storage.portal_belts) do
-        -- 只处理有效的输入传送带
-        if portal.direction == "in" and
-           portal.entity and portal.entity.valid and
-           portal.paired_with and
-           storage.portal_belts[portal.paired_with] and
-           storage.portal_belts[portal.paired_with].entity and
-           storage.portal_belts[portal.paired_with].entity.valid and
-           storage.portal_belts[portal.paired_with].direction == "out" then
-
-            -- 检查传送带类型是否匹配
-            local source = portal.entity
-            local target = storage.portal_belts[portal.paired_with].entity
-
-            if source.type == target.type then
+        -- 只处理有效配对中的输入端；进出口形态实时取自实体（按 R 翻转即时生效）
+        local source = portal.entity
+        if source and source.valid and portal.paired_with then
+            local target_portal = storage.portal_belts[portal.paired_with]
+            local target = target_portal and target_portal.entity
+            if target and target.valid
+               and source.type == target.type
+               and source.belt_to_ground_type == "input"
+               and target.belt_to_ground_type == "output" then
                 transfer_items(source, target)
             end
         end
@@ -451,9 +442,13 @@ remote.add_interface("planet-portal", {
         ensure_storage()
         local result = {}
         for id, portal in pairs(storage.portal_belts) do
+            local direction = nil
+            if portal.entity and portal.entity.valid then
+                direction = portal.entity.belt_to_ground_type
+            end
             result[id] = {
                 name = portal.name,
-                direction = portal.direction,
+                direction = direction, -- 实时形态："input"/"output"，实体失效时为 nil
                 type = portal.type,
                 paired_with = portal.paired_with,
                 surface = portal.surface,
@@ -476,7 +471,11 @@ commands.add_command("list-portals", {"cmd.list-portals"}, function(command)
             status = {"cmd.invalid"}
         end
 
-        local direction = portal.direction or {"cmd.unset"}
+        local direction = {"cmd.unset"}
+        if portal.entity and portal.entity.valid then
+            direction = (portal.entity.belt_to_ground_type == "input")
+                and {"gui.portal-direction-in"} or {"gui.portal-direction-out"}
+        end
         local name = portal.name or {"cmd.unnamed"}
         local paired = portal.paired_with and {"cmd.paired"} or {"cmd.unpaired"}
 
