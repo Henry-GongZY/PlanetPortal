@@ -132,12 +132,16 @@ function show_pairing_gui(player_index, portal_id)
     local main_flow = frame.add({type = "flow", name = "main_flow", direction = "vertical"})
 
     -- 搭档实时预览：已配对时在窗口内直接看到另一端的现场画面
+    -- 注意：camera 的 position 是 add() 的必填参数（surface_index/zoom 可选），创建后再赋值会直接报错
     local partner_entity = get_partner_entity(portal)
     if partner_entity then
-        local camera = main_flow.add({type = "camera", name = "portal_partner_camera"})
-        camera.position = partner_entity.position
-        camera.surface_index = partner_entity.surface.index
-        camera.zoom = 0.5
+        local camera = main_flow.add({
+            type = "camera",
+            name = "portal_partner_camera",
+            position = partner_entity.position,
+            surface_index = partner_entity.surface.index,
+            zoom = 0.5
+        })
         camera.style.width = 280
         camera.style.height = 180
 
