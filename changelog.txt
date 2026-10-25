@@ -1,0 +1,89 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.4.0
+Date: 26. 10. 2026
+  Changes:
+    - Added Portal Pipe (portal-pipe-to-ground) for transporting fluids between any two points, even across planets. Crafted from 4 vanilla underground pipes.
+    - Paired portal pipes equalize their fluid bidirectionally every 2 ticks; temperature is blended by volume, and two different fluids never mix.
+    - Portal pipes share the complete pairing workflow with belts: candidate list, live preview, map jump and unlock.
+  Gui:
+    - The partner list now shows all unpaired entities of the same kind. Pairable ones get a Select button; belts of the same form show a "press R to flip" hint instead of being hidden.
+    - The list header now states the current form and which form is required.
+    - Hovering the mouse over a belt or pipe registers it immediately, as a safety net for any missed build event.
+  Bugfixes:
+    - Pairing validation now rejects cross-kind pairs (belt with pipe).
+
+---------------------------------------------------------------------------------------------------
+Version: 0.3.2
+Date: 26. 10. 2026
+  Gui:
+    - Removed the note feature entirely; candidate rows show only the surface (x, y) and the form.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.3.1
+Date: 26. 10. 2026
+  Bugfixes:
+    - Newly placed belts are registered immediately again: on_built_entity and on_robot_built_entity use the entity field, which was renamed in Factorio 2.0 (reading the old created_entity silently failed).
+    - Entities built or revived by scripts are registered as well (script_raised_built / script_raised_revive).
+  Interface:
+    - /list-portals output no longer starts with a numeric ID prefix.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.3.0
+Date: 26. 10. 2026
+  Changes:
+    - Reworked pairing: pick a partner from a list of actual unpaired belts instead of typing matching names.
+    - A paired belt is locked: its window shows a live preview, the partner's coordinates and a single Unlock button; unlocking returns both belts to the unpaired state.
+    - Belt names are now optional notes and no longer take part in pairing; the "name exists" and "same direction" errors are gone because invalid states can no longer be selected.
+  Gui:
+    - Selecting a candidate pairs instantly and switches the window to the locked view; entries are re-validated at click time in case they were paired, removed or flipped while the window was open.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.2.1
+Date: 26. 10. 2026
+  Bugfixes:
+    - Fixed "Key 'position' not found in property tree" crash when opening the window of a paired belt: camera elements require their position at creation time.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.2.0
+Date: 25. 10. 2026
+  Gui:
+    - Live camera preview of the partner belt inside the pairing window.
+    - The partner row shows the surface and coordinates with a clickable [gps] link; the Show on map button opens a remote view centered on the partner, across planets.
+    - The pairing success message now contains [gps] links to both belts.
+  Interface:
+    - /list-portals prints a clickable [gps] link per portal.
+  Bugfixes:
+    - /list-portals no longer crashes (a LocalisedString was misused as a string.format format) and now also works when called from the server console.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.1.3
+Date: 25. 10. 2026
+  Gui:
+    - Removed the redundant "current form" line from the pairing window.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.1.2
+Date: 25. 10. 2026
+  Changes:
+    - The pairing direction is now derived from the belt's actual input/output form (press R to flip) instead of a GUI dropdown; transfer, pairing validation and listings all read the live form, so flipping with R takes effect instantly.
+  Gui:
+    - The pairing window only asks for a name now, prefilled with the current one.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.1.1
+Date: 25. 10. 2026
+  Changes:
+    - Ported to Factorio 2.1: the global table is replaced by storage, with lazy initialization so existing saves keep working.
+    - Item transfer rewritten for the 2.0 transport-line API: items are moved one by one and keep their quality.
+    - Setting a direction in the GUI now rotates the belt a single time; two rotations cancelled each other out.
+  Modding interface:
+    - Added the planet-portal remote interface (register / pair / get_portals) for integration and automated testing.
+  Bugfixes:
+    - Fixed crash in on_tick: "attempt to index global 'global'".
+    - Fixed items never transferring: the item field of get_detailed_contents was read with the wrong name.
+
+---------------------------------------------------------------------------------------------------
+Version: 0.1.0
+Date: 12. 04. 2025
+  Changes:
+    - Initial release: four tiers of portal belts (yellow, fast, express, turbo) that teleport items between two paired belts over any distance, even between planets. Pairing by giving two belts the same name with opposite directions.
