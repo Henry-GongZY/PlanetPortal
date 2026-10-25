@@ -324,9 +324,9 @@ script.on_configuration_changed(function()
     ensure_storage()
 end)
 
--- 检测传送带放置
+-- 检测传送带放置（注意：2.0 起事件字段更名为 entity，旧版的 created_entity 已不存在）
 script.on_event(defines.events.on_built_entity, function(event)
-    local entity = event.created_entity
+    local entity = event.entity
     if entity and entity.valid and is_portal_belt(entity) then
         register_portal_belt(entity, event.player_index)
     end
@@ -337,9 +337,24 @@ script.on_event(defines.events.on_entity_died, function(event)
     handle_portal_belt_removed(event.entity)
 end)
 
--- 检测机器人建造
+-- 检测机器人建造（2.0 起字段同样为 entity）
 script.on_event(defines.events.on_robot_built_entity, function(event)
-    local entity = event.created_entity
+    local entity = event.entity
+    if entity and entity.valid and is_portal_belt(entity) then
+        register_portal_belt(entity)
+    end
+end)
+
+-- 其他脚本建造 / 蓝图复活等来源也登记，保证任何方式放下的传送带都能立即出现在候选列表里
+script.on_event(defines.events.script_raised_built, function(event)
+    local entity = event.entity
+    if entity and entity.valid and is_portal_belt(entity) then
+        register_portal_belt(entity)
+    end
+end)
+
+script.on_event(defines.events.script_raised_revive, function(event)
+    local entity = event.entity
     if entity and entity.valid and is_portal_belt(entity) then
         register_portal_belt(entity)
     end
@@ -573,6 +588,6 @@ commands.add_command("list-portals", {"cmd.list-portals"}, function(command)
         end
         local paired = portal.paired_with and {"cmd.paired"} or {"cmd.unpaired"}
 
-        out({"cmd.log", id, name, direction, status, paired})
+        out({"cmd.log", name, direction, status, paired})
     end
 end)
