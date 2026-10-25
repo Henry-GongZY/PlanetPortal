@@ -13,16 +13,6 @@ local function ensure_storage()
     storage.next_portal_id = storage.next_portal_id or 1
 end
 
--- 工具函数，检查表中是否包含某个值
-local function table_contains(tbl, value)
-    for _, v in pairs(tbl) do
-        if v == value then
-            return true
-        end
-    end
-    return false
-end
-
 -- 生成指向实体位置的可点击 [gps] 链接（2.0 支持第三段 surface 名，跨星球可跳转）
 local function gps_link(entity)
     return "[gps=" .. math.floor(entity.position.x) .. "," .. math.floor(entity.position.y)
@@ -112,10 +102,15 @@ function handle_entity_removed(entity)
 end
 
 -- 显示当前传送带的状态
+-- 两态窗口：未配对 → 显示可选搭档列表；已配对 → 锁定态，仅显示预览与解锁按钮
 function show_pairing_gui(player_index, portal_id)
     ensure_storage()
     local player = game.players[player_index]
     local portal = storage.portal_belts[portal_id]
+
+    if not portal then return end
+    local my_entity = portal.entity
+    if not my_entity or not my_entity.valid then return end
 
     -- 关闭已存在的配对界面
     if player.gui.center.portal_pairing_frame then
@@ -131,10 +126,10 @@ function show_pairing_gui(player_index, portal_id)
 
     local main_flow = frame.add({type = "flow", name = "main_flow", direction = "vertical"})
 
-    -- 搭档实时预览：已配对时在窗口内直接看到另一端的现场画面
-    -- 注意：camera 的 position 是 add() 的必填参数（surface_index/zoom 可选），创建后再赋值会直接报错
     local partner_entity = get_partner_entity(portal)
     if partner_entity then
+        -- 已配对（锁定态）：实时预览 + 搭档信息 + 解锁按钮
+        -- 注意：camera 的 position 是 add() 的必填参数（surface_index/zoom 可选），创建后再赋值会直接报错
         local camera = main_flow.add({
             type = "camera",
             name = "portal_partner_camera",
@@ -157,20 +152,76 @@ function show_pairing_gui(player_index, portal_id)
             name = "portal_show_on_map_button",
             caption = {"gui.portal-show-on-map"}
         })
+
+        local unlock_flow = main_flow.add({type = "flow", name = "unlock_flow", direction = "horizontal"})
+        unlock_flow.add({
+            type = "button",
+            name = "portal_unlock_button",
+            caption = {"gui.portal-unlock"}
+        })
     else
-        main_flow.add({type = "label", caption = {"gui.portal-partner-none"}})
+        -- 未配对：列出所有可选搭档（有效、未配对、形态与本带相反）
+        main_flow.add({type = "label", caption = {"gui.portal-select-section"}})
+
+        local my_type = my_entity.belt_to_ground_type
+        local candidates = {}
+        for id, p in pairs(storage.portal_belts) do
+            local e = p.entity
+            if id ~= portal_id and e and e.valid
+               and not p.paired_with
+               and e.belt_to_ground_type ~= my_type then
+                candidates[#candidates + 1] = {id = id, entity = e, label = p.name}
+            end
+        end
+        table.sort(candidates, function(a, b)
+            local ea, eb = a.entity, b.entity
+            if ea.surface.name ~= eb.surface.name then
+                return ea.surface.name < eb.surface.name
+            end
+            if ea.position.x ~= eb.position.x then
+                return ea.position.x < eb.position.x
+            end
+            return ea.position.y < eb.position.y
+        end)
+
+        if #candidates == 0 then
+            main_flow.add({type = "label", caption = {"gui.portal-no-candidates"}})
+        else
+            for _, cand in ipairs(candidates) do
+                local e = cand.entity
+                local row = main_flow.add({
+                    type = "flow",
+                    name = "candidate_flow_" .. cand.id,
+                    direction = "horizontal"
+                })
+                local text = (cand.label and (cand.label .. " · ") or "")
+                    .. e.surface.name .. " (" .. math.floor(e.position.x) .. ", " .. math.floor(e.position.y) .. ")"
+                row.add({type = "label", caption = text})
+                row.add({
+                    type = "label",
+                    caption = (e.belt_to_ground_type == "input")
+                        and {"gui.portal-direction-in"} or {"gui.portal-direction-out"}
+                })
+                row.add({
+                    type = "button",
+                    name = "portal_select_button",
+                    caption = {"gui.portal-select"},
+                    tags = {portal_id = cand.id}
+                })
+            end
+        end
     end
 
-    -- 名称输入框（预填现有名称，便于改名/核对；进出口方向由实体形态决定，按 R 翻转）
+    -- 备注输入框（纯标签，便于人识别；不再参与配对逻辑）
     local name_flow = main_flow.add({type = "flow", name = "name_flow", direction = "horizontal"})
     name_flow.add({type = "label", caption = {"gui.portal-name-label"}})
     local name_textfield = name_flow.add({
         type = "textfield",
         name = "portal_name_textfield",
-        text = (portal and portal.name) or ""
+        text = portal.name or ""
     })
 
-    -- 添加确认和取消按钮
+    -- 确认 = 保存备注并关闭；取消 = 直接关闭
     local button_flow = main_flow.add({type = "flow", name = "button_flow", direction = "horizontal"})
     button_flow.add({
         type = "button",
@@ -352,88 +403,65 @@ script.on_event(defines.events.on_gui_click, function(event)
 
     if not element or not element.valid then return end
 
-    -- 处理确认按钮点击
+    -- 处理确认按钮点击：保存备注并关闭（备注只是给人看的标签，不参与配对）
     if element.name == "portal_confirm_button" then
         local frame = player.gui.center.portal_pairing_frame
         if not frame then return end
 
-        local name_textfield = frame.main_flow.name_flow.portal_name_textfield
-        local portal_name = name_textfield.text
-
-        -- 验证名称不为空
-        if portal_name == "" then
-            player.print({"gui.portal-name-empty"})
-            return
-        end
-
-        -- 获取当前配置的传送带ID
         local player_data = storage.players[event.player_index]
         local portal_id = player_data and player_data.configuring_portal_id
         if not portal_id or not storage.portal_belts[portal_id] then
-            player.print({"gui.portal-not-found"})
             frame.destroy()
             return
         end
 
-        -- 进出口以实体当前形态为准（按 R 翻转），GUI 不再设置方向
-        local my_entity = storage.portal_belts[portal_id].entity
-        if not my_entity or not my_entity.valid then
-            player.print({"gui.portal-not-found"})
-            frame.destroy()
-            return
-        end
-        local my_type = my_entity.belt_to_ground_type
+        local portal_name = frame.main_flow.name_flow.portal_name_textfield.text
+        storage.portal_belts[portal_id].name = (portal_name ~= "") and portal_name or nil
 
-        -- 检查是否有同名传送带
-        local same_name_portals = {}
-        for id, portal in pairs(storage.portal_belts) do
-            if portal.name == portal_name then
-                table.insert(same_name_portals, id)
-            end
-        end
-
-        -- 设置当前传送带的名称
-        storage.portal_belts[portal_id].name = portal_name
-
-        -- 检查配对条件
-        if #same_name_portals > 0 then
-            -- 如果已经有两个同名传送带，且当前不是其中之一
-            if #same_name_portals >= 2 and not table_contains(same_name_portals, portal_id) then
-                player.print({"gui.portal-name-exists"})
-                return
-            end
-
-            -- 检查是否有同名且形态相同的传送带（需要一进一出才能配对）
-            for _, id in ipairs(same_name_portals) do
-                if id ~= portal_id then
-                    local other_entity = storage.portal_belts[id].entity
-                    if other_entity and other_entity.valid
-                       and other_entity.belt_to_ground_type == my_type then
-                        player.print({"gui.portal-same-direction"})
-                        return
-                    end
-                end
-            end
-
-            -- 尝试配对：同名且形态相反
-            for _, id in ipairs(same_name_portals) do
-                if id ~= portal_id then
-                    local other_entity = storage.portal_belts[id].entity
-                    if other_entity and other_entity.valid
-                       and other_entity.belt_to_ground_type ~= my_type then
-                        -- 配对成功
-                        pair_portal_belts(portal_id, id)
-                        player.print({"gui.portal-paired-success"})
-                        player.print({"gui.portal-paired-links",
-                            gps_link(my_entity), gps_link(other_entity)})
-                        break
-                    end
-                end
-            end
-        end
-
-        -- 关闭界面
         frame.destroy()
+
+    -- 在列表中选择搭档：二次校验通过后立即配对，窗口刷新为锁定态
+    elseif element.name == "portal_select_button" and element.tags and element.tags.portal_id then
+        local player_data = storage.players[event.player_index]
+        local portal_id = player_data and player_data.configuring_portal_id
+        local my_portal = portal_id and storage.portal_belts[portal_id]
+        local my_entity = my_portal and my_portal.entity
+        local target = storage.portal_belts[element.tags.portal_id]
+        local target_entity = target and target.entity
+
+        -- 开窗后状态可能已变化（候选被别人配掉/被拆/被按 R 翻转），不合法则提示并刷新列表
+        if not my_entity or not my_entity.valid or my_portal.paired_with
+           or not target_entity or not target_entity.valid or target.paired_with
+           or target_entity.belt_to_ground_type == my_entity.belt_to_ground_type then
+            player.print({"gui.portal-candidate-gone"})
+            if portal_id and storage.portal_belts[portal_id] then
+                show_pairing_gui(event.player_index, portal_id)
+            end
+            return
+        end
+
+        pair_portal_belts(portal_id, element.tags.portal_id)
+        player.print({"gui.portal-paired-success"})
+        player.print({"gui.portal-paired-links", gps_link(my_entity), gps_link(target_entity)})
+        show_pairing_gui(event.player_index, portal_id)
+
+    -- 解锁：解除配对，双方各自回到未配对状态，窗口刷新为候选列表态
+    elseif element.name == "portal_unlock_button" then
+        local player_data = storage.players[event.player_index]
+        local portal_id = player_data and player_data.configuring_portal_id
+        local portal = portal_id and storage.portal_belts[portal_id]
+        local my_entity = portal and portal.entity
+        local partner_entity = get_partner_entity(portal)
+
+        if my_entity and my_entity.valid and partner_entity then
+            local partner_portal = storage.portal_belts[portal.paired_with]
+            portal.paired_with = nil
+            if partner_portal then
+                partner_portal.paired_with = nil
+            end
+            player.print({"gui.portal-unpaired", gps_link(my_entity), gps_link(partner_entity)})
+            show_pairing_gui(event.player_index, portal_id)
+        end
 
     -- 在地图上查看搭档传送带：进入以搭档为中心的远程视角（按 M 或退出按钮返回）
     elseif element.name == "portal_show_on_map_button" then
