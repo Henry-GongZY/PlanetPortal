@@ -170,7 +170,7 @@ function show_pairing_gui(player_index, portal_id)
             if id ~= portal_id and e and e.valid
                and not p.paired_with
                and e.belt_to_ground_type ~= my_type then
-                candidates[#candidates + 1] = {id = id, entity = e, label = p.name}
+                candidates[#candidates + 1] = {id = id, entity = e}
             end
         end
         table.sort(candidates, function(a, b)
@@ -194,9 +194,10 @@ function show_pairing_gui(player_index, portal_id)
                     name = "candidate_flow_" .. cand.id,
                     direction = "horizontal"
                 })
-                local text = (cand.label and (cand.label .. " · ") or "")
-                    .. e.surface.name .. " (" .. math.floor(e.position.x) .. ", " .. math.floor(e.position.y) .. ")"
-                row.add({type = "label", caption = text})
+                row.add({
+                    type = "label",
+                    caption = e.surface.name .. " (" .. math.floor(e.position.x) .. ", " .. math.floor(e.position.y) .. ")"
+                })
                 row.add({
                     type = "label",
                     caption = (e.belt_to_ground_type == "input")
@@ -212,22 +213,8 @@ function show_pairing_gui(player_index, portal_id)
         end
     end
 
-    -- 备注输入框（纯标签，便于人识别；不再参与配对逻辑）
-    local name_flow = main_flow.add({type = "flow", name = "name_flow", direction = "horizontal"})
-    name_flow.add({type = "label", caption = {"gui.portal-name-label"}})
-    local name_textfield = name_flow.add({
-        type = "textfield",
-        name = "portal_name_textfield",
-        text = portal.name or ""
-    })
-
-    -- 确认 = 保存备注并关闭；取消 = 直接关闭
+    -- 关闭按钮
     local button_flow = main_flow.add({type = "flow", name = "button_flow", direction = "horizontal"})
-    button_flow.add({
-        type = "button",
-        name = "portal_confirm_button",
-        caption = {"gui.confirm"}
-    })
     button_flow.add({
         type = "button",
         name = "portal_cancel_button",
@@ -264,7 +251,6 @@ function register_portal_belt(entity, player_index)
         surface = entity.surface.name,
         position = {x = entity.position.x, y = entity.position.y},
         type = entity.name,
-        name = nil, -- 通过GUI设置
         paired_with = nil
     }
 
@@ -418,25 +404,8 @@ script.on_event(defines.events.on_gui_click, function(event)
 
     if not element or not element.valid then return end
 
-    -- 处理确认按钮点击：保存备注并关闭（备注只是给人看的标签，不参与配对）
-    if element.name == "portal_confirm_button" then
-        local frame = player.gui.center.portal_pairing_frame
-        if not frame then return end
-
-        local player_data = storage.players[event.player_index]
-        local portal_id = player_data and player_data.configuring_portal_id
-        if not portal_id or not storage.portal_belts[portal_id] then
-            frame.destroy()
-            return
-        end
-
-        local portal_name = frame.main_flow.name_flow.portal_name_textfield.text
-        storage.portal_belts[portal_id].name = (portal_name ~= "") and portal_name or nil
-
-        frame.destroy()
-
     -- 在列表中选择搭档：二次校验通过后立即配对，窗口刷新为锁定态
-    elseif element.name == "portal_select_button" and element.tags and element.tags.portal_id then
+    if element.name == "portal_select_button" and element.tags and element.tags.portal_id then
         local player_data = storage.players[event.player_index]
         local portal_id = player_data and player_data.configuring_portal_id
         local my_portal = portal_id and storage.portal_belts[portal_id]
@@ -581,13 +550,9 @@ commands.add_command("list-portals", {"cmd.list-portals"}, function(command)
                 and {"gui.portal-direction-in"} or {"gui.portal-direction-out"}
         end
 
-        -- 名称后附可点击的 [gps] 链接，点击即在地图上定位该传送带
-        local name = portal.name or {"cmd.unnamed"}
-        if valid then
-            name = {"", name, " ", gps_link(entity)}
-        end
+        -- 附可点击的 [gps] 链接，点击即在地图上定位该传送带（链接文本即坐标）
         local paired = portal.paired_with and {"cmd.paired"} or {"cmd.unpaired"}
 
-        out({"cmd.log", name, direction, status, paired})
+        out({"cmd.log", direction, status, paired, valid and gps_link(entity) or ""})
     end
 end)
