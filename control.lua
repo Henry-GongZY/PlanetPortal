@@ -115,17 +115,7 @@ function show_pairing_gui(player_index, portal_id)
 
     local main_flow = frame.add({type = "flow", name = "main_flow", direction = "vertical"})
 
-    -- 只读显示当前形态（进出口由实体本身决定，对带子按 R 即可翻转，无需在此选择）
-    local entity = portal and portal.entity
-    local form = (entity and entity.valid and entity.belt_to_ground_type == "output")
-        and {"gui.portal-direction-out"} or {"gui.portal-direction-in"}
-    main_flow.add({
-        type = "label",
-        name = "portal_form_label",
-        caption = {"gui.portal-form-label", form}
-    })
-
-    -- 添加名称输入框（预填现有名称，便于改名/核对）
+    -- 名称输入框（预填现有名称，便于改名/核对；进出口方向由实体形态决定，按 R 翻转）
     local name_flow = main_flow.add({type = "flow", name = "name_flow", direction = "horizontal"})
     name_flow.add({type = "label", caption = {"gui.portal-name-label"}})
     local name_textfield = name_flow.add({
