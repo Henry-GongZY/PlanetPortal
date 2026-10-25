@@ -21,3 +21,11 @@ portal_turbo_underground_belt_item.localised_description = {"item-description.po
 
 data:extend({portal_underground_belt_item, portal_fast_underground_belt_item,
             portal_express_underground_belt_item, portal_turbo_underground_belt_item})
+
+-- 空间地下管道物品
+local portal_pipe_item = table.deepcopy(data.raw["item"]["pipe-to-ground"])
+portal_pipe_item.name = "portal-pipe-to-ground"
+portal_pipe_item.place_result = "portal-pipe-to-ground"
+portal_pipe_item.localised_description = {"item-description.portal-pipe"}
+
+data:extend({portal_pipe_item})

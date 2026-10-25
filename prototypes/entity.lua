@@ -22,3 +22,12 @@ portal_turbo_underground_belt = customize_portal_belt(portal_turbo_underground_b
 
 data:extend({portal_underground_belt, portal_fast_underground_belt,
             portal_express_underground_belt, portal_turbo_underground_belt})
+
+-- 空间地下管道：复用原版地下管道，max_distance 限制为 1（不与普通地下管道远距相连）
+local portal_pipe = table.deepcopy(data.raw["pipe-to-ground"]["pipe-to-ground"])
+portal_pipe.name = "portal-pipe-to-ground"
+portal_pipe.max_distance = 1
+portal_pipe.minable = {mining_time = 0.2, result = "portal-pipe-to-ground"}
+portal_pipe.localised_description = {"item-description.portal-pipe"}
+
+data:extend({portal_pipe})

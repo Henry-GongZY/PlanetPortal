@@ -41,3 +41,16 @@ local portal_turbo_underground_belt_recipe = {
 
 data:extend({portal_underground_belt_recipe, portal_fast_underground_belt_recipe,
             portal_express_underground_belt_recipe, portal_turbo_underground_belt_recipe})
+
+-- 空间地下管道配方：与传送带保持 4 换 2 的比例
+local portal_pipe_recipe = {
+    type = "recipe",
+    name = "portal-pipe-to-ground",
+    ingredients =
+    {
+        {type = "item", name = "pipe-to-ground", amount=4},
+    },
+    results = {{type="item", name="portal-pipe-to-ground", amount=2}}
+}
+
+data:extend({portal_pipe_recipe})

@@ -31,7 +31,7 @@ end
 
 -- 处理传送带移除的函数
 function handle_portal_belt_removed(entity)
-    if not entity or not is_portal_belt(entity) then return end
+    if not entity or not is_portal_entity(entity) then return end
     ensure_storage()
 
     -- 查找并移除传送带
@@ -55,12 +55,13 @@ function handle_portal_belt_removed(entity)
     end
 end
 
--- 检查实体是否为传送带
-function is_portal_belt(entity)
+-- 检查实体是否为本 mod 的空间传送实体（传送带或地下管道）
+function is_portal_entity(entity)
     if not entity or not entity.valid then return false end
 
-    -- 添加调试日志
-    -- log("检查实体类型: " .. entity.name)
+    if entity.type == "pipe-to-ground" then
+        return entity.name == "portal-pipe-to-ground"
+    end
 
     local portal_belt_types = {
         "portal-underground-belt",
@@ -71,7 +72,6 @@ function is_portal_belt(entity)
 
     for _, belt_type in pairs(portal_belt_types) do
         if entity.name == belt_type then
-            -- log("找到传送门类型: " .. entity.name)
             return true
         end
     end
@@ -79,12 +79,30 @@ function is_portal_belt(entity)
     return false
 end
 
+-- 实体类别："belt"（传送带，有输入/输出形态）或 "pipe"（地下管道，无形态之分）
+function portal_kind(entity)
+    if not entity or not entity.valid then return nil end
+    if entity.type == "pipe-to-ground" then return "pipe" end
+    if entity.type == "underground-belt" then return "belt" end
+    return nil
+end
+
+-- 两个空间传送实体是否允许配对：同类别；传送带还要求形态一进一出
+function can_pair_entities(a_entity, b_entity)
+    local ka = portal_kind(a_entity)
+    if not ka or ka ~= portal_kind(b_entity) then return false end
+    if ka == "belt" then
+        return a_entity.belt_to_ground_type ~= b_entity.belt_to_ground_type
+    end
+    return true
+end
+
 -- 处理实体移除
 function handle_entity_removed(entity)
     if not entity or not entity.valid then return end
     ensure_storage()
 
-    if is_portal_belt(entity) then
+    if is_portal_entity(entity) then
         -- 查找对应的传送带ID
         for id, portal in pairs(storage.portal_belts) do
             if portal.entity == entity then
@@ -160,16 +178,24 @@ function show_pairing_gui(player_index, portal_id)
             caption = {"gui.portal-unlock"}
         })
     else
-        -- 未配对：列出所有可选搭档（有效、未配对、形态与本带相反）
-        main_flow.add({type = "label", caption = {"gui.portal-select-section"}})
+        -- 未配对：列出所有同类别、未配对的空间传送实体
+        -- 传送带：形态相反的可直接选择，形态相同的显示提示（按 R 翻转后可配对）
+        -- 管道：无形态之分，全部可选
+        local my_kind = portal_kind(my_entity)
+        if my_kind == "pipe" then
+            main_flow.add({type = "label", caption = {"gui.portal-select-section-pipe"}})
+        else
+            main_flow.add({type = "label", caption = {"gui.portal-select-section-belt",
+                (my_entity.belt_to_ground_type == "input")
+                    and {"gui.portal-direction-in"} or {"gui.portal-direction-out"}}})
+        end
 
-        local my_type = my_entity.belt_to_ground_type
         local candidates = {}
         for id, p in pairs(storage.portal_belts) do
             local e = p.entity
             if id ~= portal_id and e and e.valid
                and not p.paired_with
-               and e.belt_to_ground_type ~= my_type then
+               and portal_kind(e) == my_kind then
                 candidates[#candidates + 1] = {id = id, entity = e}
             end
         end
@@ -189,6 +215,7 @@ function show_pairing_gui(player_index, portal_id)
         else
             for _, cand in ipairs(candidates) do
                 local e = cand.entity
+                local pairable = can_pair_entities(my_entity, e)
                 local row = main_flow.add({
                     type = "flow",
                     name = "candidate_flow_" .. cand.id,
@@ -198,17 +225,25 @@ function show_pairing_gui(player_index, portal_id)
                     type = "label",
                     caption = e.surface.name .. " (" .. math.floor(e.position.x) .. ", " .. math.floor(e.position.y) .. ")"
                 })
-                row.add({
-                    type = "label",
-                    caption = (e.belt_to_ground_type == "input")
-                        and {"gui.portal-direction-in"} or {"gui.portal-direction-out"}
-                })
-                row.add({
-                    type = "button",
-                    name = "portal_select_button",
-                    caption = {"gui.portal-select"},
-                    tags = {portal_id = cand.id}
-                })
+                if my_kind == "pipe" then
+                    row.add({type = "label", caption = {"gui.portal-pipe-kind"}})
+                else
+                    row.add({
+                        type = "label",
+                        caption = (e.belt_to_ground_type == "input")
+                            and {"gui.portal-direction-in"} or {"gui.portal-direction-out"}
+                    })
+                end
+                if pairable then
+                    row.add({
+                        type = "button",
+                        name = "portal_select_button",
+                        caption = {"gui.portal-select"},
+                        tags = {portal_id = cand.id}
+                    })
+                else
+                    row.add({type = "label", caption = {"gui.portal-same-form-hint"}})
+                end
             end
         end
     end
@@ -299,6 +334,28 @@ function transfer_items(source_belt, target_belt)
     end
 end
 
+-- 空间地下管道：双向均衡两条管道内的流体（流量按体积加权平均温度）
+function transfer_fluids(pipe_a, pipe_b)
+    local fa = pipe_a.get_fluid(1)
+    local fb = pipe_b.get_fluid(1)
+    if not fa and not fb then return end
+    -- 两边是不同流体时不传送，避免意外混合
+    if fa and fb and fa.name ~= fb.name then return end
+
+    local fluid = fa or fb
+    local amount_a = fa and fa.amount or 0
+    local amount_b = fb and fb.amount or 0
+    local total = amount_a + amount_b
+    if total <= 0 then return end
+
+    local temp = (amount_a * (fa and fa.temperature or 0)
+        + amount_b * (fb and fb.temperature or 0)) / total
+    local half = total / 2
+
+    pipe_a.set_fluid(1, {name = fluid.name, amount = half, temperature = temp})
+    pipe_b.set_fluid(1, {name = fluid.name, amount = total - half, temperature = temp})
+end
+
 -- events
 -- 初始化存储表，在 on_init 事件中初始化 storage（Factorio 2.0+ 用 storage 代替 global）
 script.on_init(function()
@@ -313,7 +370,7 @@ end)
 -- 检测传送带放置（注意：2.0 起事件字段更名为 entity，旧版的 created_entity 已不存在）
 script.on_event(defines.events.on_built_entity, function(event)
     local entity = event.entity
-    if entity and entity.valid and is_portal_belt(entity) then
+    if entity and entity.valid and is_portal_entity(entity) then
         register_portal_belt(entity, event.player_index)
     end
 end)
@@ -326,7 +383,7 @@ end)
 -- 检测机器人建造（2.0 起字段同样为 entity）
 script.on_event(defines.events.on_robot_built_entity, function(event)
     local entity = event.entity
-    if entity and entity.valid and is_portal_belt(entity) then
+    if entity and entity.valid and is_portal_entity(entity) then
         register_portal_belt(entity)
     end
 end)
@@ -334,14 +391,14 @@ end)
 -- 其他脚本建造 / 蓝图复活等来源也登记，保证任何方式放下的传送带都能立即出现在候选列表里
 script.on_event(defines.events.script_raised_built, function(event)
     local entity = event.entity
-    if entity and entity.valid and is_portal_belt(entity) then
+    if entity and entity.valid and is_portal_entity(entity) then
         register_portal_belt(entity)
     end
 end)
 
 script.on_event(defines.events.script_raised_revive, function(event)
     local entity = event.entity
-    if entity and entity.valid and is_portal_belt(entity) then
+    if entity and entity.valid and is_portal_entity(entity) then
         register_portal_belt(entity)
     end
 end)
@@ -356,15 +413,18 @@ script.on_event(defines.events.on_player_mined_entity, function(event)
     handle_portal_belt_removed(event.entity)
 end)
 
--- 添加选择实体变化事件监听（移到外部，不要放在 on_event 回调中）
+-- 选中/悬停到空间传送实体时兜底注册：即使建造事件因任何原因漏登记，
+-- 玩家视线扫过带子/管道的瞬间它也会进入候选列表
 script.on_event(defines.events.on_selected_entity_changed, function(event)
     local player = game.players[event.player_index]
     local selected = player.selected
 
-    -- 如果选中了传送带，不要立即显示配对界面
-    -- 只在玩家点击时显示（通过 portal-configure 事件处理）
-    if selected and selected.valid and is_portal_belt(selected) then
-        -- 不做任何操作，等待玩家点击
+    if selected and selected.valid and is_portal_entity(selected) then
+        ensure_storage()
+        for _, portal in pairs(storage.portal_belts) do
+            if portal.entity == selected then return end
+        end
+        register_portal_belt(selected, event.player_index)
     end
 end)
 
@@ -375,7 +435,7 @@ script.on_event("portal-configure", function(event)
     local selected = player.selected
 
     -- 如果选中了传送带，显示配对界面
-    if selected and selected.valid and is_portal_belt(selected) then
+    if selected and selected.valid and is_portal_entity(selected) then
         -- 查找传送带ID
         local portal_id = nil
         for id, portal in pairs(storage.portal_belts) do
@@ -416,7 +476,7 @@ script.on_event(defines.events.on_gui_click, function(event)
         -- 开窗后状态可能已变化（候选被别人配掉/被拆/被按 R 翻转），不合法则提示并刷新列表
         if not my_entity or not my_entity.valid or my_portal.paired_with
            or not target_entity or not target_entity.valid or target.paired_with
-           or target_entity.belt_to_ground_type == my_entity.belt_to_ground_type then
+           or not can_pair_entities(my_entity, target_entity) then
             player.print({"gui.portal-candidate-gone"})
             if portal_id and storage.portal_belts[portal_id] then
                 show_pairing_gui(event.player_index, portal_id)
@@ -476,18 +536,27 @@ script.on_event(defines.events.on_tick, function(event)
 
     ensure_storage()
 
-    -- 遍历所有传送带
+    -- 遍历所有空间传送实体，按类别分发
     for id, portal in pairs(storage.portal_belts) do
-        -- 只处理有效配对中的输入端；进出口形态实时取自实体（按 R 翻转即时生效）
         local source = portal.entity
         if source and source.valid and portal.paired_with then
             local target_portal = storage.portal_belts[portal.paired_with]
             local target = target_portal and target_portal.entity
-            if target and target.valid
-               and source.type == target.type
-               and source.belt_to_ground_type == "input"
-               and target.belt_to_ground_type == "output" then
-                transfer_items(source, target)
+
+            if target and target.valid then
+                if portal_kind(source) == "pipe" then
+                    -- 管道无方向，双向均衡；每对只处理一次
+                    if id < portal.paired_with then
+                        transfer_fluids(source, target)
+                    end
+                else
+                    -- 传送带只从输入端传送到输出端；形态实时取自实体（按 R 翻转即时生效）
+                    if source.type == target.type
+                       and source.belt_to_ground_type == "input"
+                       and target.belt_to_ground_type == "output" then
+                        transfer_items(source, target)
+                    end
+                end
             end
         end
     end
@@ -496,7 +565,7 @@ end)
 -- 供其他 mod 或自动化测试调用的远程接口
 remote.add_interface("planet-portal", {
     register = function(entity)
-        if not is_portal_belt(entity) then return nil end
+        if not is_portal_entity(entity) then return nil end
         return register_portal_belt(entity)
     end,
     pair = function(portal_id1, portal_id2)
@@ -508,11 +577,15 @@ remote.add_interface("planet-portal", {
         for id, portal in pairs(storage.portal_belts) do
             local direction = nil
             if portal.entity and portal.entity.valid then
-                direction = portal.entity.belt_to_ground_type
+                if portal_kind(portal.entity) == "pipe" then
+                    direction = "pipe"
+                else
+                    direction = portal.entity.belt_to_ground_type
+                end
             end
             result[id] = {
                 name = portal.name,
-                direction = direction, -- 实时形态："input"/"output"，实体失效时为 nil
+                direction = direction, -- "input"/"output"/"pipe"，实体失效时为 nil
                 type = portal.type,
                 paired_with = portal.paired_with,
                 surface = portal.surface,
@@ -546,8 +619,12 @@ commands.add_command("list-portals", {"cmd.list-portals"}, function(command)
 
         local direction = {"cmd.unset"}
         if valid then
-            direction = (entity.belt_to_ground_type == "input")
-                and {"gui.portal-direction-in"} or {"gui.portal-direction-out"}
+            if portal_kind(entity) == "pipe" then
+                direction = {"gui.portal-pipe-kind"}
+            else
+                direction = (entity.belt_to_ground_type == "input")
+                    and {"gui.portal-direction-in"} or {"gui.portal-direction-out"}
+            end
         end
 
         -- 附可点击的 [gps] 链接，点击即在地图上定位该传送带（链接文本即坐标）
